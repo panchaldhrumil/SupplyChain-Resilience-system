@@ -1,0 +1,237 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Design tokens — supports dark (default) and light themes.
+   Toggle via [data-theme="light"] on <html>.
+   ============================================================ */
+
+/* ── Dark theme (default) ─────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --bg-base:        #0a0e1a;
+  --bg-card:        #111827;
+  --bg-card-hover:  #1a2235;
+  --bg-header:      rgba(17,24,39,0.96);
+  --bg-header-blur: blur(12px);
+  --bg-input:       #111827;
+  --bg-footer:      rgba(10,14,26,0.8);
+  --bg-placeholder: rgba(17,24,39,0.6);
+  --bg-overlay:     rgba(255,255,255,0.02);
+  --bg-overlay-hov: rgba(255,255,255,0.05);
+  --bg-code:        rgba(31,45,69,0.4);
+
+  --border:         #1f2d45;
+  --border-accent:  #2d4060;
+  --border-input:   #1f2d45;
+
+  --text-primary:   #e2e8f0;
+  --text-secondary: #cbd5e1;
+  --text-muted:     #64748b;
+  --text-dim:       #94a3b8;
+  --text-footer:    #334155;
+  --text-input:     #94a3b8;
+
+  --scrollbar-thumb:      #1f2d45;
+  --scrollbar-thumb-hov:  #2d4060;
+
+  --leaflet-bg:     #0d1422;
+  --leaflet-filter: brightness(0.55) saturate(0.6);
+
+  --toggle-bg:        #1f2d45;
+  --toggle-knob:      #e2e8f0;
+  --toggle-ring:      #2d4060;
+  --toggle-icon-show: '☀️';  /* shown in dark mode (click to switch to light) */
+}
+
+/* ── Light theme ──────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-base:        #f1f5f9;
+  --bg-card:        #ffffff;
+  --bg-card-hover:  #f8fafc;
+  --bg-header:      rgba(255,255,255,0.95);
+  --bg-header-blur: blur(12px);
+  --bg-input:       #f8fafc;
+  --bg-footer:      rgba(241,245,249,0.9);
+  --bg-placeholder: rgba(248,250,252,0.9);
+  --bg-overlay:     rgba(0,0,0,0.02);
+  --bg-overlay-hov: rgba(0,0,0,0.05);
+  --bg-code:        rgba(203,213,225,0.4);
+
+  --border:         #e2e8f0;
+  --border-accent:  #cbd5e1;
+  --border-input:   #e2e8f0;
+
+  --text-primary:   #0f172a;
+  --text-secondary: #1e293b;
+  --text-muted:     #64748b;
+  --text-dim:       #475569;
+  --text-footer:    #94a3b8;
+  --text-input:     #64748b;
+
+  --scrollbar-thumb:      #cbd5e1;
+  --scrollbar-thumb-hov:  #94a3b8;
+
+  --leaflet-bg:     #dde8f0;
+  --leaflet-filter: brightness(0.95) saturate(0.8);
+
+  --toggle-bg:        #e2e8f0;
+  --toggle-knob:      #0f172a;
+  --toggle-ring:      #cbd5e1;
+}
+
+/* ── Smooth theme transition ─────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  transition:
+    background-color 0.25s ease,
+    border-color     0.25s ease,
+    color            0.2s  ease;
+}
+
+/* ── Global resets ─────────────────────────────────────────── */
+body {
+  margin: 0;
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Cards ──────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  position: relative;
+}
+.card:hover { border-color: var(--border-accent); }
+
+.card-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+/* ── Badges ─────────────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.badge-red   { background: rgba(239,68,68,0.18);  color: #ef4444; border: 1px solid #ef4444; }
+.badge-amber { background: rgba(245,158,11,0.18); color: #d97706; border: 1px solid #f59e0b; }
+.badge-green { background: rgba(34,197,94,0.15);  color: #16a34a; border: 1px solid #22c55e; }
+.badge-blue  { background: rgba(59,130,246,0.15); color: #2563eb; border: 1px solid #3b82f6; }
+.badge-gray  { background: rgba(100,116,139,0.2); color: var(--text-dim); border: 1px solid var(--border-accent); }
+
+/* Slightly brighter badge text in dark mode */
+[data-theme="dark"] .badge-red   { color: #fca5a5; }
+[data-theme="dark"] .badge-amber { color: #fcd34d; }
+[data-theme="dark"] .badge-green { color: #86efac; }
+[data-theme="dark"] .badge-blue  { color: #93c5fd; }
+[data-theme="dark"] .badge-gray  { color: #94a3b8; }
+
+/* ── Leaflet overrides ─────────────────────────────────────── */
+.leaflet-container {
+  background: var(--leaflet-bg) !important;
+  border-radius: 10px;
+}
+.leaflet-tile { filter: var(--leaflet-filter); }
+
+/* ── Theme toggle button ───────────────────────────────────── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--toggle-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  user-select: none;
+}
+.theme-toggle:hover {
+  border-color: var(--border-accent);
+  box-shadow: 0 0 0 2px var(--toggle-ring);
+}
+.theme-toggle .toggle-track {
+  width: 30px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--border-accent);
+  position: relative;
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+[data-theme="light"] .theme-toggle .toggle-track {
+  background: #3b82f6;
+}
+.theme-toggle .toggle-knob {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.25s cubic-bezier(.4,0,.2,1);
+}
+[data-theme="light"] .theme-toggle .toggle-knob {
+  transform: translateX(14px);
+}
+
+/* ── Scrollbar (webkit) ────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hov); }
+
+/* ── Pulse animation for live indicator ────────────────────── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.5; transform: scale(0.85); }
+}
+.pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+/* ── Smooth fade-in on data load ───────────────────────────── */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fadeIn 0.3s ease forwards; }
+
+/* ── Loading spinner ───────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Module section header bar ────────────────────────────── */
+.module-header {
+  display: flex; align-items: center; gap: 12;
+  padding-bottom: 0.5rem; margin-top: 0.5rem;
+}
+
+/* ── Visited anchors contrast/opacity fix ─────────────────── */
+a, a:visited {
+  color: inherit !important;
+  text-decoration: none;
+  opacity: 1 !important;
+}
+a:hover {
+  text-decoration: none;
+}
+
+

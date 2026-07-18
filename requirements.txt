@@ -1,0 +1,52 @@
+# =============================================================================
+# India Energy Supply Chain Resilience Dashboard
+# Python Requirements — install everything with:
+#
+#   python -m venv venv
+#   venv\Scripts\activate          (Windows)
+#   source venv/bin/activate        (Mac/Linux)
+#   pip install -r requirements.txt
+#
+# Python version: 3.10 or 3.11 recommended (tested on 3.11)
+# =============================================================================
+
+# ── RSS / HTTP / HTML scraping ────────────────────────────────────────────────
+feedparser>=6.0.10          # Google News RSS + official govt RSS parsing
+requests>=2.31.0            # HTTP client for all web fetches
+beautifulsoup4>=4.12.3      # HTML parsing (article text extraction)
+lxml>=4.9.0,<6.0.0         # Fast HTML/XML parser — capped <6 to avoid newspaper4k conflict
+
+# ── Data handling ────────────────────────────────────────────────────────────
+pandas>=2.1.0               # All CSV I/O, dedup, and aggregation
+python-dateutil>=2.9.0      # Robust date parsing across all formats
+
+# ── Market data ──────────────────────────────────────────────────────────────
+yfinance>=0.2.40            # Yahoo Finance — Brent (BZ=F), WTI (CL=F), USD/INR (INR=X)
+
+# ── Article enrichment ───────────────────────────────────────────────────────
+# newspaper4k = maintained fork of newspaper3k — same `import newspaper` API,
+# full Python 3.11 support. newspaper3k is abandoned and breaks on Python 3.11.
+newspaper4k>=0.9.3          # Full article text + NLP extraction
+# Required by newspaper4k:
+nltk>=3.8.1
+Pillow>=10.0.0
+
+# ── FastAPI backend ───────────────────────────────────────────────────────────
+fastapi>=0.111.0            # REST API framework
+uvicorn[standard]>=0.29.0  # ASGI server (with websockets, lifespan support)
+python-multipart>=0.0.9    # Required by FastAPI for form/multipart support
+
+# ── Database (optional — only needed without --no-db flag) ───────────────────
+# If you run with --no-db, this package is never imported at runtime.
+# Install anyway so the import at module load doesn't fail.
+psycopg2-binary>=2.9.9     # PostgreSQL adapter (binary = no local pg install needed)
+
+# ── Scheduling (optional) ────────────────────────────────────────────────────
+schedule>=1.2.2             # Pure-Python scheduler (if you use scheduler.py wrapper)
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+httpx>=0.27.0               # Async HTTP — used by FastAPI TestClient internally
+
+# ── Gemini API Integration ───────────────────────────────────────────────────
+google-genai>=1.0.0         # Modern Google Gemini SDK (free-tier safe calls)
+

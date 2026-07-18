@@ -1,0 +1,44 @@
+{
+  "_comment": "Assumptions and configuration parameters for Module 2 (Scenario Simulator) and Module 3 (Procurement Recommendation Engine). All assumptions are either cited or explicitly marked as illustrative.",
+  "_last_updated": "2026-07-17",
+
+  "price_elasticity": {
+    "crude_to_retail_fuel": 0.15,
+    "_note": "Illustrative policy assumption: a 10% crude oil supply shortfall triggers a 1.5% retail fuel price increase. Under India's current deregulation policy, state-owned OMCs adjust prices based on rolling daily averages, though government tax interventions often buffer short-term volatility."
+  },
+
+  "country_chokepoints": {
+    "Iraq": ["hormuz"],
+    "Saudi Arabia": ["hormuz"],
+    "UAE": ["hormuz"],
+    "Kuwait": ["hormuz"],
+    "Russia": ["russia_route", "suez"],
+    "USA": ["suez"],
+    "Nigeria": ["cape_of_good_hope"],
+    "Other": ["hormuz"],
+    "_note": "Standard maritime shipping routes for crude carriers (VLCC/Suezmax) bound for Indian west coast refineries."
+  },
+
+  "supplier_reliability": {
+    "Iraq": 85,
+    "Saudi Arabia": 95,
+    "Russia": 60,
+    "UAE": 95,
+    "USA": 98,
+    "Nigeria": 70,
+    "Kuwait": 90,
+    "Other": 75,
+    "_note": "Reliability score (0-100) based on historical delivery reliability, contract flexibility, and political alignment with India's long-term energy security strategy."
+  },
+
+  "weights": {
+    "transit_speed": 0.40,
+    "chokepoint_safety": 0.40,
+    "supplier_reliability": 0.20,
+    "_note": "Weighting configuration for the procurement alternatives ranking algorithm."
+  },
+
+  "average_tanker_cargo_size_bbl": 1500000,
+  "estimated_vessel_formula": "(daily_consumption_bbl * on_water_days) / average_tanker_cargo_size_bbl",
+  "_average_tanker_cargo_size_note": "Industry standard average crude tanker capacity: VLCCs carry ~2 million barrels, Suezmax ~1 million barrels, Aframax ~700k barrels. Blended average is cited as ~1.5 million barrels for India-bound shipments."
+}

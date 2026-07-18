@@ -1,0 +1,37 @@
+{
+  "_comment": "All numbers in this file are sourced from official government/regulator publications. Do NOT change any numeric value without updating the corresponding 'source' field with the new citation.",
+
+  "spr": {
+    "total_capacity_mmt": 5.33,
+    "total_capacity_barrels": 36920000,
+    "sites": [
+      {"name": "Visakhapatnam", "capacity_mmt": 1.33},
+      {"name": "Mangaluru",     "capacity_mmt": 1.50},
+      {"name": "Padur",         "capacity_mmt": 2.50}
+    ],
+    "current_fill_pct": 64,
+    "days_cover_at_full_capacity": 9.5,
+    "estimated_days_cover_current": 6.1,
+    "source": "PIB press release pib.gov.in/PressReleasePage.aspx?PRID=1694712 + Rajya Sabha RTI reply, 23 Mar 2026",
+    "last_verified": "2026-03-23",
+    "note": "current_fill_pct is dynamic per government statement. Flag in UI that this figure may have changed; re-verify against ISPRL/PPAC disclosures before final demo presentation."
+  },
+
+  "refinery_stock": {
+    "days_cover": 64.5,
+    "source": "PIB press release pib.gov.in/PressReleasePage.aspx?PRID=1694712",
+    "last_verified": "2026-03-23",
+    "note": "Represents aggregate petroleum product stocks held at refineries and depots across India."
+  },
+
+  "on_water": {
+    "days_cover": null,
+    "methodology": "calculated_not_published",
+    "calculation_inputs_needed": [
+      "monthly crude import volume by source country (from PPAC published Monthly Import Data)",
+      "average voyage transit time by route: Gulf (Iraq/Saudi/UAE/Kuwait) ~10-15 days, US Gulf Coast ~30-45 days, Russia via Suez ~25-30 days, West Africa (Nigeria) ~20-25 days",
+      "India's average daily crude consumption in barrels/day (from PPAC Daily Petroleum Report)"
+    ],
+    "note": "No official live figure exists for in-transit crude. This value is derived via calculate_on_water_days() using import_mix.json. Never label this as 'live' or 'real-time' in the UI — always display with 'Estimated' badge."
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "_comment": "TODO: Fill each 'import_share_pct' value from PPAC Monthly Import Data (ppac.gov.in/content/245_1_ImportExport.aspx). The sum of all import_share_pct must equal 100. transit_days_typical is the median voyage days from that source country to India's west coast ports (Vadinar, Sikka, Jamnagar area). Source your transit times from Baltic Exchange or Lloyd's voyage records.",
+  "_last_updated": "TODO — fill date when you populate from PPAC",
+  "_ppac_data_url": "https://ppac.gov.in/content/245_1_ImportExport.aspx",
+
+  "daily_consumption_bbl": 4.8,
+  "_daily_consumption_note": "TODO: Fill from PPAC Daily Petroleum Report. Typically ~5.1 million barrels/day total petroleum products; crude processing ~4.7 mb/d as of FY2025-26. Use crude throughput figure, not total petroleum product consumption.",
+
+  "sources": [
+    {
+      "country": "Iraq",
+      "import_share_pct": 19.9,
+      "transit_days_typical": 12,
+      "_transit_note": "Basra to India west coast via Arabian Sea, ~10-14 days typical"
+    },
+    {
+      "country": "Saudi Arabia",
+      "import_share_pct": 16,
+      "transit_days_typical": 10,
+      "_transit_note": "Ras Tanura / Jubail to India west coast, ~8-12 days typical"
+    },
+    {
+      "country": "Russia",
+      "import_share_pct": 17.9,
+      "transit_days_typical": 27,
+      "_transit_note": "Primorsk/Novorossiysk via Suez to India, ~25-30 days; Arctic route not currently used for India. Post-sanctions rerouting via Cape adds ~45 days."
+    },
+    {
+      "country": "UAE",
+      "import_share_pct": 11,
+      "transit_days_typical": 8,
+      "_transit_note": "Das Island / ADCO fields to India west coast, ~6-10 days"
+    },
+    {
+      "country": "USA",
+      "import_share_pct": 8,
+      "transit_days_typical": 37,
+      "_transit_note": "US Gulf Coast (Houston/Corpus Christi) to India east/west coast, ~35-40 days via Cape or Suez"
+    },
+    {
+      "country": "Nigeria",
+      "import_share_pct": 2.5,
+      "transit_days_typical": 22,
+      "_transit_note": "Bonny terminal to India west coast, ~20-25 days"
+    },
+    {
+      "country": "Kuwait",
+      "import_share_pct": 4,
+      "transit_days_typical": 10,
+      "_transit_note": "Mina Al Ahmadi to India west coast, ~8-12 days"
+    },
+    {
+      "country": "Other",
+      "import_share_pct": 20.7,
+      "transit_days_typical": 15,
+      "_transit_note": "Weighted average of remaining minor suppliers (Oman, Mexico, Angola, etc.)"
+    }
+  ]
+}
