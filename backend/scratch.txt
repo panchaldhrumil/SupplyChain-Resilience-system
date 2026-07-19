@@ -1,0 +1,227 @@
+--- fetch_official_rss ---
+def fetch_official_rss(from_date_str, to_date_str=None):
+    """
+    Fetch items from official government/regulator RSS feeds directly.
+    Uses requests with a hard timeout so a hanging feed (e.g. WTO leaving
+    the socket open) can't freeze the whole pipeline — feedparser.parse()
+    on a URL has no timeout and will block forever on such feeds.
+    Returns list of item dicts in same format as fetch_query().
+    """
+    items = []
+    headers = {"User-Agent": USER_AGENT}
+
+    for category, feed_url, source_name in OFFICIAL_RSS_FEEDS:
+        try:
+            # Fetch with a hard timeout instead of letting feedparser block
+            resp = requests.get(feed_url, headers=headers, timeout=8,
+                                allow_redirects=True)
+            if resp.status_code != 200:
+                print(f"  [Official RSS] {source_name}: HTTP {resp.status_code}, skipped")
+                continue
+
+            feed = feedparser.parse(resp.content)   # parse bytes, no network
+
+            before = len(items)
+            for entry in feed.entries:
+                pub = entry.get("published", "") or entry.get("updated", "")
+                if not _in_date_range(pub, from_date_str, to_date_str):
+                    continue
+                title = entry.get("title", "").strip()
+                if not title:
+                    continue
+                if not _is_relevant(title):
+                    continue
+                link      = entry.get("link", "")
+                pub_date  = _parse_date(pub)
+                sectors, companies = _get_impact(title)
+                corridor_impact    = apply_corridor_impact(title)
+                items.append({
+                    "date":               pub_date,
+                    "published_raw":      pub,
+                    "title":              title,
+                    "source":             source_name,
+                    "link":               link,
+                    "category":           category,
+                    "affected_sectors":   sectors,
+                    "affected_companies": companies,
+                    "buffer_layer":       corridor_impact["buffer_layer"],
+                    "corridor":           corridor_impact["corridor"],
+                    "severity":           corridor_impact["severity"],
+                })
+            print(f"  [Official RSS] {source_name}: {len(items) - before} items")
+            time.sleep(0.5)
+
+        except requests.exceptions.Timeout:
+            print(f"  [Official RSS] {source_name}: TIMEOUT (skipped)")
+            continue
+        except Exception as e:
+            print(f"  [Official RSS] {source_name} failed: {e}")
+            continue
+
+    return items
+
+--- fetch_ofac_sanctions_list ---
+def fetch_ofac_sanctions_list(output_dir):
+    """
+    Download the OFAC SDN (Specially Designated Nationals) CSV from the
+    public Treasury URL, parse it, and write/append to ofac_sanctions.csv
+    in *output_dir*.
+
+    On each run:
+    - Compares new entries against the previous file (keyed on ent_num).
+    - Flags genuinely new entries with new_since_last_run=True.
+    - Appends only net-new rows so the file grows incrementally.
+
+    Returns (new_count, total_count).  Never raises — errors are logged and
+    (0, 0) is returned so the main pipeline is unaffected.
+    """
+    out_path = os.path.join(output_dir, "ofac_sanctions.csv")
+    print(f"\n[OFAC] Downloading SDN list from {_OFAC_SDN_URL} ...")
+
+    try:
+        resp = requests.get(
+            _OFAC_SDN_URL,
+            headers={"User-Agent": USER_AGENT},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            print(f"  [OFAC] HTTP {resp.status_code} — skipped.")
+            return 0, 0
+
+        # The SDN CSV has no header; assign the published column names.
+        # Use StringIO so we never write temp files.
+        raw_text = resp.content.decode("utf-8", errors="replace")
+        df_new = pd.read_csv(
+            StringIO(raw_text),
+            header=None,
+            names=_OFAC_SDN_COLS,
+            dtype=str,
+            on_bad_lines="skip",
+        )
+        df_new["ent_num"] = df_new["ent_num"].str.strip()
+        df_new["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        df_new["new_since_last_run"] = False
+
+        # Load previous file if it exists, compare on ent_num
+        existing_ids: set = set()
+        if os.path.exists(out_path):
+            try:
+                df_existing = pd.read_csv(out_path, dtype=str)
+                if "ent_num" in df_existing.columns:
+                    existing_ids = set(df_existing["ent_num"].dropna().str.strip())
+            except Exception as e:
+                print(f"  [OFAC] Could not read existing file ({e}); treating all as new.")
+
+        # Flag net-new entries
+        df_new["new_since_last_run"] = ~df_new["ent_num"].isin(existing_ids)
+        new_count = int(df_new["new_since_last_run"].sum())
+
+        # Append only net-new rows (or write full file on first run)
+        if not os.path.exists(out_path):
+            df_new.to_csv(out_path, index=False, encoding="utf-8-sig")
+            print(f"  [OFAC] First run — wrote {len(df_new):,} entries to {out_path}")
+        else:
+            net_new = df_new[df_new["new_since_last_run"]]
+            if not net_new.empty:
+                net_new.to_csv(out_path, mode="a", header=False, index=False,
+                                encoding="utf-8-sig")
+                print(f"  [OFAC] Appended {new_count} new entries "
+                      f"({len(df_new):,} total in download) → {out_path}")
+            else:
+                print(f"  [OFAC] No new SDN entries since last run "
+                      f"({len(df_new):,} total in download).")
+
+        # Print a brief sample of newly added names (useful for monitoring)
+        if new_count:
+            samples = df_new[df_new["new_since_last_run"]]["sdn_name"].dropna().head(5).tolist()
+            print(f"  [OFAC] New names (sample): {', '.join(samples)}")
+
+        return new_count, len(df_new)
+
+    except Exception as e:
+        print(f"  [OFAC] fetch_ofac_sanctions_list failed: {e}")
+        return 0, 0
+
+--- fetch_commodity_prices ---
+def fetch_commodity_prices(output_dir, lookback_days=7):
+    """
+    Pull *lookback_days* of daily OHLCV data for Brent (BZ=F), WTI (CL=F),
+    and USD/INR (INR=X) from Yahoo Finance via yfinance (no API key needed).
+
+    Writes to commodity_prices.csv in *output_dir*, appending only rows
+    whose (date, ticker) pair is not already present — so re-running is
+    idempotent and the file grows incrementally.
+
+    Returns (new_rows_written, total_rows_attempted). Never raises.
+    """
+    out_path = os.path.join(output_dir, "commodity_prices.csv")
+
+    try:
+        import yfinance as yf
+    except ImportError:
+        print("  [CommodityPrices] yfinance not installed — skipping. "
+              "Run: pip install yfinance")
+        return 0, 0
+
+    print(f"\n[CommodityPrices] Fetching {lookback_days}d of daily prices "
+          f"for {list(_COMMODITY_TICKERS.keys())} ...")
+
+    # Load existing (date, ticker) pairs to avoid duplicates
+    existing_pairs: set = set()
+    if os.path.exists(out_path):
+        try:
+            df_ex = pd.read_csv(out_path, dtype=str)
+            if {"date", "ticker"}.issubset(df_ex.columns):
+                existing_pairs = set(
+                    zip(df_ex["date"].str.strip(), df_ex["ticker"].str.strip())
+                )
+        except Exception as e:
+            print(f"  [CommodityPrices] Could not read existing file ({e}); "
+                  "treating all as new.")
+
+    end_dt   = datetime.now(timezone.utc).date()
+    start_dt = end_dt - timedelta(days=lookback_days)
+
+    all_rows = []
+    for ticker, label in _COMMODITY_TICKERS.items():
+        try:
+            tkr  = yf.Ticker(ticker)
+            hist = tkr.history(start=str(start_dt), end=str(end_dt), interval="1d")
+            if hist.empty:
+                print(f"  [CommodityPrices] {ticker}: no data returned")
+                continue
+
+            for row_date, row in hist.iterrows():
+                date_str = str(row_date)[:10]   # "YYYY-MM-DD"
+                if (date_str, ticker) in existing_pairs:
+                    continue
+                all_rows.append({
+                    "date":        date_str,
+                    "ticker":      ticker,
+                    "label":       label,
+                    "open":        round(float(row.get("Open",  float("nan"))), 4),
+                    "high":        round(float(row.get("High",  float("nan"))), 4),
+                    "low":         round(float(row.get("Low",   float("nan"))), 4),
+                    "close":       round(float(row.get("Close", float("nan"))), 4),
+                    "volume":      int(row.get("Volume", 0) or 0),
+                    "fetched_at":  datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                })
+            print(f"  [CommodityPrices] {ticker} ({label}): "
+                  f"{len(hist)} rows fetched")
+            time.sleep(0.3)
+
+        except Exception as e:
+            print(f"  [CommodityPrices] {ticker} failed: {e}")
+            continue
+
+    if not all_rows:
+        print("  [CommodityPrices] No new rows to write.")
+        return 0, 0
+
+    df_new = pd.DataFrame(all_rows)
+    write_header = not os.path.exists(out_path)
+    df_new.to_csv(out_path, mode="a", header=write_header, index=False,
+                  encoding="utf-8-sig")
+    print(f"  [CommodityPrices] Wrote {len(df_new)} new rows → {out_path}")
+    return len(df_new), len(df_new)
+

@@ -1,0 +1,135 @@
+--- _get_impact ---
+def _get_impact(title):
+    title_lower = title.lower()
+    sectors_found, companies_found = [], []
+
+    for keywords, sectors, companies in IMPACT_MAP:
+        if any(kw in title_lower for kw in keywords):
+            sectors_found.extend(sectors)
+            companies_found.extend(companies)
+
+    seen_s, seen_c = set(), set()
+    unique_sectors, unique_companies = [], []
+    for s in sectors_found:
+        if s not in seen_s:
+            seen_s.add(s)
+            unique_sectors.append(s)
+    for c in companies_found:
+        if c not in seen_c:
+            seen_c.add(c)
+            unique_companies.append(c)
+
+    if not unique_sectors:
+        unique_sectors   = ["Broader Market"]
+        unique_companies = ["NIFTY50"]
+
+    return " | ".join(unique_sectors), " | ".join(unique_companies[:15])
+
+--- apply_corridor_impact ---
+def apply_corridor_impact(text):
+    """
+    Scan *text* (title or article body) against CORRIDOR_IMPACT_MAP and return
+    the impact dict for the FIRST matching entry, following the same scan
+    pattern as _get_impact() applied to IMPACT_MAP.
+
+    Returns a dict: {"buffer_layer": str, "corridor": str, "severity": int}
+    Returns _CORRIDOR_NO_MATCH (all-none) if nothing matches.
+    """
+    t = str(text).lower()
+    for keywords, impact in CORRIDOR_IMPACT_MAP:
+        if any(kw in t for kw in keywords):
+            return impact
+    return _CORRIDOR_NO_MATCH
+
+--- _passes_outcome_gate ---
+def _passes_outcome_gate(category, title):
+    if category not in DATA_RELEASE_CATEGORIES:
+        return True
+
+    tl = title.lower()
+
+    if any(p in tl for p in PREVIEW_NOISE_WORDS):
+        return False
+
+    anchors = CATEGORY_ANCHORS.get(category, [])
+    if anchors and not any(a in tl for a in anchors):
+        return False
+
+    if any(w in tl for w in OUTCOME_SIGNAL_WORDS):
+        return True
+    if NUMERIC_VALUE_RE.search(tl):
+        return True
+    return False
+
+--- _is_official ---
+def _is_official(source_str):
+    s = str(source_str).lower().strip()
+    return any(key in s for key in OFFICIAL_SOURCES)
+
+--- _source_score ---
+def _source_score(src):
+    s = str(src).lower().strip()
+    for k, v in OFFICIAL_SOURCES.items():
+        if k in s:
+            return v
+    for k, v in NEWS_SOURCE_PRIORITY.items():
+        if k in s:
+            return v
+    return 25
+
+--- _is_relevant ---
+def _is_relevant(title):
+    t = str(title).lower()
+    return any(kw in t for kw in RELEVANCE_KEYWORDS)
+
+--- _deduplicate_day_group ---
+def _deduplicate_day_group(items):
+    """
+    Given items from the SAME (category, date) group:
+    1. Cluster by title similarity (Jaccard >= threshold) -> same event
+    2. For each cluster:
+       - Official source present -> keep ALL official, drop all Google News
+       - All Google News -> keep single highest-trust source
+    3. Single-item clusters (unique event) -> always keep as-is
+    """
+    if len(items) <= 1:
+        return items
+
+    tokens = [_title_tokens(x.get("title", "")) for x in items]
+    parent = list(range(len(items)))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(x, y):
+        parent[find(x)] = find(y)
+
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            if _jaccard(tokens[i], tokens[j]) >= SIMILARITY_THRESHOLD:
+                union(i, j)
+
+    clusters = defaultdict(list)
+    for i, item in enumerate(items):
+        clusters[find(i)].append(item)
+
+    result = []
+    for cluster in clusters.values():
+        if len(cluster) == 1:
+            result.append(cluster[0])
+            continue
+
+        official = [x for x in cluster if _is_official(x.get("source", ""))]
+        news = [x for x in cluster if not _is_official(x.get("source", ""))]
+
+        if official:
+            result.extend(official)
+        else:
+            best = max(news, key=lambda x: _source_score(x.get("source", "")))
+            result.append(best)
+
+    return result
+
