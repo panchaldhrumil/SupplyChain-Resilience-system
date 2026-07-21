@@ -1,0 +1,116 @@
+================================================================================
+INDIA ENERGY SUPPLY CHAIN RESILIENCE SYSTEM — MIGRATION & REFACTORED SUMMARY
+================================================================================
+
+SUMMARY FOR TEAM MEMBERS:
+------------------------
+This document details all the architectural, database, RAG vector search, and API changes implemented across the backend and pipeline layers.
+
+1. ARCHITECTURE OVERVIEW
+------------------------
+- Migrated primary data persistence from local CSV files to Neon Serverless Postgres DB.
+- Integrated Qdrant Vector Cloud for RAG semantic search and intelligence brief synthesis using Google Gemini embeddings (`models/gemini-embedding-001`).
+- Maintained local CSV outputs as non-blocking backup/fallback files (`data/macro_events/`).
+- Conducted a global code cleanup by removing docstrings and comments across all Python modules.
+
+
+2. NEW FILES CREATED
+--------------------
+- backend/pipeline/db.py
+  Central Neon Postgres helper. Handles connection pooling, table schema auto-creation (`init_schema`), and type-safe CRUD operations for macro_events, commodity_prices, sanctions, alerts, corridor_score_history, and agent_state.
+
+- backend/pipeline/qdrant_store.py
+  Qdrant Cloud vector database integration. Handles collection creation, 3072-dim vector embeddings via Gemini SDK (`models/gemini-embedding-001`), payload indexing on 'corridor', and Qdrant semantic similarity search.
+
+- backend/api/db.py
+  FastAPI layer database module. Provides serverless-friendly connection queries (`query_df`, `query_rows`) to read directly from Neon DB.
+
+- backend/migrations/002_full_schema.sql
+  Full DDL script for Neon Postgres containing all 6 table definitions, primary keys, unique constraints, and performance indexes.
+
+- backend/requirements.txt & backend/pyproject.toml
+  Added all required dependencies: psycopg2-binary, qdrant-client, google-genai, fastapi, uvicorn, python-dotenv, pandas, requests, beautifulsoup4, newspaper3k, yfinance, apscheduler.
+
+
+3. MODIFIED PIPELINE & COLLECTOR FILES
+--------------------------------------
+- backend/pipeline/settings.py
+  Loaded DATABASE_URL, QDRANT_URL, QDRANT_API_KEY, and QDRANT_COLLECTION environment variables. Fixed fallback defaults for empty environment strings.
+
+- backend/pipeline/runner.py
+  Updated pipeline execution pass to open Neon DB connection, ensure schema exists, and push fetched articles, commodity prices, and sanctions to Neon Postgres.
+
+- backend/pipeline/collectors/sanctions.py
+  Updated OFAC SDN list downloader to upsert new entries into Neon DB 'sanctions' table while backing up to CSV.
+
+- backend/pipeline/collectors/yahoo_finance.py
+  Updated commodity price fetcher (yfinance) to check existing date/ticker pairs in Neon DB before upserting daily OHLCV rows.
+
+- backend/pipeline/enrichers/article_enricher.py
+  Added Qdrant vector embedding and upsert pass. Enriched articles with text snippets/takeaways are automatically vectorized and indexed in Qdrant Cloud.
+
+- backend/pipeline/logger.py, backend/pipeline/persistence/csv_writer.py, backend/pipeline/persistence/postgres_writer.py, backend/scheduler.py, backend/live_macro_pipeline.py
+  Stripped out docstrings and comments. Streamlined entry points and fallback writers.
+
+
+4. MODIFIED API ROUTERS (FastAPI)
+---------------------------------
+- backend/api/main.py
+  Added automated Neon DB schema verification and Qdrant collection setup to the FastAPI lifespan startup hook.
+
+- backend/api/routers/news_feed.py
+  Migrated endpoint to read enriched articles and LLM signal validation stats directly from Neon 'macro_events' table.
+
+- backend/api/routers/risk_corridors.py
+  Migrated endpoint to compute exponential recency-decay risk scores using 'macro_events' and 'corridor_score_history' from Neon DB.
+
+- backend/api/routers/corridor_brief.py
+  Migrated RAG intelligence brief endpoint to query Qdrant Cloud using vector similarity search for articles matching the requested corridor, with Neon DB fallback. Synthesizes briefs via Gemini API key pool (`DynamicKeyPool`).
+
+- backend/api/routers/sanctions.py
+  Migrated endpoint to query new OFAC SDN entries from Neon 'sanctions' table.
+
+- backend/api/routers/commodity_prices.py
+  Migrated endpoint to read Brent, WTI, and USD/INR prices from Neon 'commodity_prices' table.
+
+- backend/api/routers/auto_alerts.py
+  Migrated endpoint to read auto-triggered disruption alerts from Neon 'alerts' table.
+
+- backend/api/routers/scenario_analysis.py
+  Migrated procurement recommendation and scenario simulation logic to evaluate corridor risk and sanction flags from Neon DB.
+
+- backend/agent/response_agent.py
+  Updated autonomous response agent loop to perceive corridor scores from Neon DB, calculate supply gaps, log alerts to Neon 'alerts' table, and persist state in Neon 'agent_state' table.
+
+
+5. ENVIRONMENT VARIABLES (.env / .env.example)
+----------------------------------------------
+The following environment variables are required in `backend/.env`:
+
+  DATABASE_URL=postgresql://user:password@host/dbname?sslmode=require
+  QDRANT_URL=https://<your-cluster-id>.qdrant.tech
+  QDRANT_API_KEY=<your-qdrant-api-key>
+  QDRANT_COLLECTION=macro_events
+  GEMINI_API_KEY=<your-gemini-api-key>
+  AGENT_THRESHOLD=66
+  AGENT_INTERVAL_SECONDS=300
+
+
+6. LOCAL SETUP & RUN INSTRUCTIONS FOR TEAMMATES
+------------------------------------------------
+1. Install Python dependencies:
+   cd backend
+   uv pip install -r requirements.txt
+
+2. Copy environment file and add API keys:
+   cp .env.example .env
+
+3. Run FastAPI backend server:
+   uvicorn api.main:app --reload --port 8000
+
+4. Run Frontend (Vite React):
+   cd ../frontend
+   npm install
+   npm run dev
+
+================================================================================
