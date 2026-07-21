@@ -38,6 +38,22 @@
     "_note": "Weighting configuration for the procurement alternatives ranking algorithm."
   },
 
+  "red_sea_routing": {
+    "Saudi Arabia": 0.3,
+    "USA": 1.0,
+    "_note": "Fraction of each country's India-bound crude exports that transit the Bab-el-Mandeb / Red Sea corridor. Saudi Arabia ships ~30% via Yanbu (Red Sea terminal); the balance via Ras Tanura through Hormuz. US Gulf Coast cargoes are Suez/Red Sea routed when eastbound to India."
+  },
+
+  "rupee_depreciation": {
+    "crude_oil_import_cost_fraction": 0.85,
+    "_note": "Crude oil accounts for ~85% of India's total petroleum import bill (PPAC Annual Report). INR depreciation against USD raises the rupee-denominated import cost proportionally. At ~4.8 mb/d imports at ~$75/bbl, every 1% INR fall adds ~₹2,700 Cr to the annual import bill."
+  },
+
+  "sanctions_config": {
+    "active_sanctions_score_multiplier": 0.5,
+    "_note": "When a country has active OFAC SDN designations detected in the last 30 days, its final procurement score is multiplied by this factor. 0.5 = 50% penalty (caution, stays ranked). 0.0 = full exclusion (legacy behaviour). 1.0 = no penalty. The SANCTIONS CAUTION badge always displays regardless of multiplier value."
+  },
+
   "average_tanker_cargo_size_bbl": 1500000,
   "estimated_vessel_formula": "(daily_consumption_bbl * on_water_days) / average_tanker_cargo_size_bbl",
   "_average_tanker_cargo_size_note": "Industry standard average crude tanker capacity: VLCCs carry ~2 million barrels, Suezmax ~1 million barrels, Aframax ~700k barrels. Blended average is cited as ~1.5 million barrels for India-bound shipments."

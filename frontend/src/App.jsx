@@ -161,7 +161,8 @@ export default function App() {
 
   const selectStyle = {
     background: 'var(--bg-input)', border: '1px solid var(--border-input)',
-    color: 'var(--text-input)', borderRadius: 6, padding: '3px 8px',
+    color: 'var(--text-primary)',  // was var(--text-input) — raised to match Scenario/Procurement dropdown contrast
+    borderRadius: 6, padding: '3px 8px',
     fontSize: 11, cursor: 'pointer',
   };
 

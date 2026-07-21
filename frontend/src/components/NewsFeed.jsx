@@ -10,7 +10,7 @@ const SEVERITY_COLORS = ['#475569','#64748b','#3b82f6','#f59e0b','#f97316','#ef4
 export default function NewsFeed({ items = [], loading }) {
   if (loading && !items.length) {
     return (
-      <div style={{ color: '#475569', fontSize: 12, padding: '1rem 0' }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '1rem 0' }}>
         Loading news feed…
       </div>
     );
@@ -18,7 +18,7 @@ export default function NewsFeed({ items = [], loading }) {
 
   if (!items.length) {
     return (
-      <div style={{ color: '#475569', fontSize: 12, padding: '1rem 0' }}>
+      <div style={{ color: 'var(--text-muted)', fontSize: 12, padding: '1rem 0' }}>
         No articles in this window. Run live_macro_pipeline.py to populate.
       </div>
     );
@@ -43,29 +43,29 @@ export default function NewsFeed({ items = [], loading }) {
               display: 'block', padding: '10px 12px',
               borderRadius: 8, textDecoration: 'none', color: 'inherit',
               borderLeft: `3px solid ${sevColor}`,
-              background: 'rgba(255,255,255,0.02)',
+              background: 'var(--bg-overlay)',
               marginBottom: 2,
               transition: 'background 0.15s',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}
+            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-overlay-hov)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-overlay)'}
           >
             {/* Top row: source + time */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 {item.source || 'Unknown'}
               </span>
-              <span style={{ fontSize: 10, color: '#475569' }}>{relTime}</span>
+              <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>{relTime}</span>
             </div>
 
             {/* Title */}
-            <div style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0', lineHeight: 1.4, marginBottom: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', lineHeight: 1.4, marginBottom: 4 }}>
               {item.title}
             </div>
 
             {/* Takeaway (if available) */}
             {item.key_takeaway && (
-              <div style={{ fontSize: 11, color: '#64748b', marginBottom: 5, lineHeight: 1.4 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-dim)', marginBottom: 5, lineHeight: 1.4 }}>
                 {item.key_takeaway.slice(0, 120)}{item.key_takeaway.length > 120 ? '…' : ''}
               </div>
             )}

@@ -60,9 +60,18 @@ def _load_events(csv_dir: Path, lookback_days: int = 7) -> pd.DataFrame:
     return df
 
 
+def decay_weight(severity: float, hours_elapsed: float) -> float:
+    """
+    Calculate the decayed weight of an article's severity based on hours elapsed.
+    Half-life of 36 hours.
+    """
+    decay_lambda = math.log(2) / DECAY_HALF_LIFE_HOURS
+    return severity * math.exp(-decay_lambda * hours_elapsed)
+
+
 def _decay_weight(row_dt: datetime, now: datetime) -> float:
     hours_old = (now - row_dt).total_seconds() / 3600.0
-    return math.exp(-math.log(2) * hours_old / DECAY_HALF_LIFE_HOURS)
+    return decay_weight(1.0, hours_old)
 
 
 def _load_score_history(csv_dir: Path) -> dict:

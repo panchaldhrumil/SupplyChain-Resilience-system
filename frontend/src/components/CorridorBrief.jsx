@@ -1,11 +1,11 @@
 /**
  * CorridorBrief.jsx
- * 
+ *
  * RAG-grounded 2-3 sentence intelligence brief for a selected corridor.
  * Calls GET /api/corridor-brief?corridor={id}
- * 
+ *
  * Shows real source articles used, "insufficient signal" when no data exists,
- * and whether the brief was LLM-generated or auto-compiled.
+ * and the LLM status (which now includes the 4-key round-robin pool health).
  */
 import { useState, useEffect } from 'react';
 import { ENDPOINTS } from '../config';
@@ -19,6 +19,49 @@ const CORRIDOR_OPTIONS = [
   { id: 'malacca',           label: 'Strait of Malacca' },
 ];
 
+// ── Status badge config ────────────────────────────────────────────────────
+const STATUS_META = {
+  ok:                       { color: '#3b82f6', label: 'Gemini AI · Live' },
+  fallback_no_key:          { color: '#f59e0b', label: 'Auto-compiled (no API key)' },
+  fallback_all_keys_failed: { color: '#ef4444', label: 'All keys exhausted — auto-compiled' },
+  insufficient_signal:      { color: '#64748b', label: 'No recent data' },
+};
+
+function StatusBadge({ status, keysInPool }) {
+  const meta   = STATUS_META[status] || { color: '#64748b', label: status };
+  const isOk   = status === 'ok';
+  const isFail = status === 'fallback_all_keys_failed';
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      {/* Primary status badge */}
+      <span style={{
+        fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+        background: `${meta.color}22`, color: meta.color,
+        border: `1px solid ${meta.color}44`,
+        padding: '2px 7px', borderRadius: 4,
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+      }}>
+        {isOk  && <span style={{ fontSize: 8 }}>●</span>}
+        {isFail && <span style={{ fontSize: 8 }}>⚠</span>}
+        {meta.label}
+      </span>
+
+      {/* Key pool indicator — only shown when we know the count */}
+      {keysInPool != null && keysInPool > 0 && (
+        <span style={{
+          fontSize: 9, color: '#475569',
+          display: 'inline-flex', alignItems: 'center', gap: 3,
+        }}>
+          <span style={{ color: isOk ? '#22c55e' : '#64748b' }}>⬡</span>
+          {keysInPool} key{keysInPool !== 1 ? 's' : ''} in pool
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
 export default function CorridorBrief() {
   const [selected, setSelected] = useState('hormuz');
   const [data, setData]         = useState(null);
@@ -35,20 +78,15 @@ export default function CorridorBrief() {
       .catch(e => { setError(String(e)); setLoading(false); });
   }, [selected]);
 
-  const articles     = data?.articles     || [];
-  const brief        = data?.brief        || '';
-  const llmStatus    = data?.llm_status   || '';
+  const articles    = data?.articles     || [];
+  const brief       = data?.brief        || '';
+  const llmStatus   = data?.llm_status   || '';
+  const keysInPool  = data?.keys_in_pool ?? null;
   const insufficient = llmStatus === 'insufficient_signal';
-
-  const badgeColor = llmStatus === 'ok' ? '#3b82f6' :
-                     llmStatus === 'fallback_no_key' ? '#f59e0b' : '#64748b';
-  const badgeLabel = llmStatus === 'ok' ? 'Claude AI' :
-                     llmStatus === 'fallback_no_key' ? 'Auto-compiled (no LLM key)' :
-                     llmStatus === 'insufficient_signal' ? 'No recent data' : llmStatus;
 
   return (
     <div className="card">
-      {/* Header */}
+      {/* ── Header ── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <div className="card-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
           <span>📡</span> Intelligence Brief
@@ -70,12 +108,22 @@ export default function CorridorBrief() {
         </select>
       </div>
 
-      {/* Description */}
+      {/* ── Description ── */}
       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.5 }}>
         RAG-grounded synthesis of news articles from the last 48 hours for this corridor.
         The LLM only references the shown source articles — it does not invent information.
+        {keysInPool != null && (
+          <span style={{ color: keysInPool >= 2 ? '#22c55e' : keysInPool === 1 ? '#f59e0b' : '#ef4444', marginLeft: 6, fontWeight: 600 }}>
+            {keysInPool >= 2
+              ? `${keysInPool}-key pool active.`
+              : keysInPool === 1
+              ? '1 key active (add more to GEMINI_API_KEY_1..4 for resilience).'
+              : 'No keys loaded — running in auto-compile mode.'}
+          </span>
+        )}
       </div>
 
+      {/* ── Loading ── */}
       {loading && (
         <div style={{ textAlign: 'center', padding: '20px 0', color: 'var(--text-muted)', fontSize: 12 }}>
           <div style={{
@@ -84,14 +132,16 @@ export default function CorridorBrief() {
             animation: 'spin 0.8s linear infinite',
             display: 'inline-block', marginRight: 8,
           }} />
-          Loading brief…
+          Calling Gemini (round-robin key pool)…
         </div>
       )}
 
+      {/* ── Error ── */}
       {!loading && error && (
         <div style={{ color: '#ef4444', fontSize: 12, padding: '10px 0' }}>Error: {error}</div>
       )}
 
+      {/* ── Content ── */}
       {!loading && !error && (
         <>
           {/* Brief text */}
@@ -106,18 +156,11 @@ export default function CorridorBrief() {
             {brief || 'No brief available.'}
           </div>
 
-          {/* LLM status badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{
-              fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
-              background: `${badgeColor}22`, color: badgeColor,
-              border: `1px solid ${badgeColor}44`,
-              padding: '2px 7px', borderRadius: 4,
-            }}>
-              {badgeLabel}
-            </span>
+          {/* LLM status + key pool indicator */}
+          <div style={{ marginBottom: 10 }}>
+            <StatusBadge status={llmStatus} keysInPool={keysInPool} />
             {articles.length > 0 && (
-              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
                 {articles.length} source article{articles.length !== 1 ? 's' : ''} used
               </span>
             )}
@@ -157,8 +200,9 @@ export default function CorridorBrief() {
         </>
       )}
 
+      {/* ── Footer ── */}
       <div style={{ marginTop: 8, fontSize: 10, color: 'var(--text-footer)' }}>
-        Source: macro_events_filtered.csv · 48h lookback · api/routers/corridor_brief.py
+        Source: macro_events_filtered.csv · 48h lookback · Gemini 2.0 Flash · round-robin key pool
       </div>
     </div>
   );

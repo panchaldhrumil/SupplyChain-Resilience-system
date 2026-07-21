@@ -2,7 +2,7 @@
 // Includes: floating legend, corridor name labels via DivIcon, hover tooltips
 // Includes: India real markers — refineries, SPR sites, crude ports (real coordinates, static)
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { MapContainer, TileLayer, Polyline, Tooltip, CircleMarker, Marker } from 'react-leaflet';
+import { MapContainer, TileLayer, Polyline, Tooltip, CircleMarker, Marker, ZoomControl, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { CORRIDOR_LABELS, CORRIDOR_PATHS } from '../utils/corridors';
@@ -12,7 +12,7 @@ const LEVEL_LABEL = { red: 'HIGH', amber: 'ELEVATED', green: 'NOMINAL' };
 
 // Centroid for label + tooltip anchor per corridor
 const CORRIDOR_CENTERS = {
-  hormuz:            [26.0,  57.0],
+  hormuz:            [26.57, 56.25], // actual water channel — narrowest passage between Iran (N) and Musandam/Oman (S)
   red_sea:           [18.5,  41.5],
   suez:              [30.5,  32.2],
   cape_of_good_hope: [-23.0, 15.0],
@@ -20,14 +20,17 @@ const CORRIDOR_CENTERS = {
   malacca:           [2.5,  102.0],
 };
 
-// Label offset from center (lat, lng shift) to avoid overlap with dot
+// Label offset (lat°, lng°) from the centre dot.
+// Each label is placed at center+offset so text lands in open sea/clear sky,
+// away from: the centre dot itself, India's landmass, and neighbouring labels.
+// Verified at default zoom 3 (center=[20,60], 1°≈5.7 px at equator).
 const LABEL_OFFSET = {
-  hormuz:            [-3.0,   4.0],
-  red_sea:           [-3.0,   5.0],
-  suez:              [-3.0,   2.0],
-  cape_of_good_hope: [-3.0,   5.0],
-  russia_route:      [-3.0,   5.0],
-  malacca:           [-3.0,   4.0],
+  hormuz:            [+4.0,  -5.0],  // [30, 52] → north of strait, over southern Iran
+  red_sea:           [-2.0,  -6.0],  // [16.5, 35.5] → west, over open Red Sea/Sudan coast
+  suez:              [+3.0,  -4.0],  // [33.5, 28.2] → north-west into Eastern Mediterranean
+  cape_of_good_hope: [-4.0,  -2.0],  // [-27, 13] → south into South Atlantic
+  russia_route:      [+4.0,  -5.0],  // [51, 28.5] → north into Romania/Moldova
+  malacca:           [-3.0,  +2.0],  // [-0.5, 104] → south into Java Sea
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,7 +77,7 @@ function makeLabelIcon(label, color) {
       pointer-events: none;
     ">${label.toUpperCase()}</div>`,
     className: '',
-    iconAnchor: [0, 0],
+    iconAnchor: [-12, -8], // Shift 12px right, 8px down relative to center dot
   });
 }
 
@@ -85,6 +88,28 @@ function makeInfraIcon(type) {
     className: '',
     iconAnchor: [8, 8],
     iconSize: [16, 16],
+  });
+}
+
+// Cluster badge shown when several infra markers overlap at low zoom
+function makeClusterIcon(group) {
+  const count = group.length;
+  const types = [...new Set(group.map(m => m.type))];
+  const sym = types.map(t => ({ refinery: '🏭', spr: '🛢️', port: '⚓' }[t] || '📍')).join('');
+  return L.divIcon({
+    html: `<div style="
+      background:rgba(10,14,26,0.93);
+      border:1.5px solid #334155;
+      border-radius:50%;
+      width:34px;height:34px;
+      display:flex;flex-direction:column;
+      align-items:center;justify-content:center;
+      box-shadow:0 0 10px rgba(0,0,0,0.7),0 0 0 2px rgba(251,191,36,0.22);
+    "><span style="font-size:10px;line-height:1.1;">${sym.slice(0, 2)}</span
+    ><span style="color:#fbbf24;font-weight:700;font-family:Inter,sans-serif;font-size:10px;line-height:1.1;">${count}</span></div>`,
+    className: '',
+    iconAnchor: [17, 17],
+    iconSize: [34, 34],
   });
 }
 
@@ -130,6 +155,95 @@ function MapLegend({ showInfra }) {
         Hover corridor for score + headline
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// InfraLayer — zoom-aware clustering for India infrastructure markers
+// Must be a direct child of <MapContainer> to access the Leaflet map context.
+// At zoom < 5  → greedy 25-px-radius clusters (count badge + tooltip list).
+// At zoom ≥ 5  → every marker rendered individually at its real lat/lng.
+// ─────────────────────────────────────────────────────────────────────────────
+function InfraLayer({ sites, showInfra }) {
+  const [zoom, setZoom] = useState(3);
+  useMapEvents({ zoomend: (e) => setZoom(e.target.getZoom()) });
+
+  if (!showInfra) return null;
+
+  const INDIVIDUAL_ZOOM = 5; // separate all icons at this zoom and above
+
+  const renderSingle = (site) => (
+    <Marker key={site.id} position={[site.lat, site.lng]} icon={makeInfraIcon(site.type)}>
+      <Tooltip direction="top" offset={[0, -6]}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
+          <strong>{site.name}</strong>
+          <div style={{ color: '#64748b', fontSize: 10 }}>
+            {site.type === 'spr' ? 'Strategic Petroleum Reserve'
+             : site.type === 'refinery' ? 'Oil Refinery' : 'Crude Import Port'}
+          </div>
+          <div style={{ color: '#475569', fontSize: 9 }}>Real coordinates · Static reference data</div>
+        </div>
+      </Tooltip>
+    </Marker>
+  );
+
+  if (zoom >= INDIVIDUAL_ZOOM) {
+    return <>{sites.map(renderSingle)}</>;
+  }
+
+  // ── Cluster: group markers within a ~25-px radius at the current zoom ──────
+  // Convert 25 px → equivalent degrees so we can compare raw lat/lng without
+  // projecting every point (accurate enough at these zoom levels).
+  const pxPerDeg = Math.pow(2, zoom) * 256 / 360;
+  const degThreshold = 25 / pxPerDeg;
+
+  const assigned = new Set();
+  const clusters = [];
+  sites.forEach((site, i) => {
+    if (assigned.has(i)) return;
+    const group = [site];
+    assigned.add(i);
+    sites.forEach((other, j) => {
+      if (assigned.has(j)) return;
+      const cosLat = Math.cos(site.lat * Math.PI / 180);
+      if (
+        Math.abs(site.lat - other.lat) < degThreshold &&
+        Math.abs(site.lng - other.lng) * cosLat < degThreshold
+      ) {
+        group.push(other);
+        assigned.add(j);
+      }
+    });
+    clusters.push(group);
+  });
+
+  return (
+    <>
+      {clusters.map((group, idx) => {
+        const lat = group.reduce((s, m) => s + m.lat, 0) / group.length;
+        const lng = group.reduce((s, m) => s + m.lng, 0) / group.length;
+
+        if (group.length === 1) return renderSingle(group[0]);
+
+        return (
+          <Marker key={`cluster-${idx}`} position={[lat, lng]} icon={makeClusterIcon(group)}>
+            <Tooltip direction="top" offset={[0, -10]}>
+              <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
+                <strong style={{ color: '#fbbf24' }}>{group.length} infrastructure sites</strong>
+                <div style={{ marginTop: 4 }}>
+                  {group.map(m => (
+                    <div key={m.id} style={{ color: '#cbd5e1', fontSize: 10 }}>{m.name}</div>
+                  ))}
+                </div>
+                <div style={{ color: '#475569', fontSize: 9, marginTop: 4, borderTop: '1px solid #1f2d45', paddingTop: 3 }}>
+                  Zoom to level 5+ to see individual sites
+                </div>
+              </div>
+            </Tooltip>
+          </Marker>
+        );
+      })}
+    </>
   );
 }
 
@@ -200,8 +314,10 @@ export default function WorldMap({ corridors = [], pipelineTs, vesselEstimate = 
           maxZoom={6}
           style={{ height: '100%', width: '100%', minHeight: 340 }}
           attributionControl={false}
-          zoomControl={true}
+          zoomControl={false}
         >
+          {/* Zoom controls — moved to bottom-right so they don't overlap the VESSELS IN TRANSIT stat card at top-left */}
+          <ZoomControl position="bottomright" />
           <TileLayer
             url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
             attribution='&copy; <a href="https://carto.com/">CARTO</a>'
@@ -215,7 +331,10 @@ export default function WorldMap({ corridors = [], pipelineTs, vesselEstimate = 
             const color  = LEVEL_HEX[level];
             const label  = CORRIDOR_LABELS[key] || key;
             const center = CORRIDOR_CENTERS[key];
-            const offset = LABEL_OFFSET[key] || [-2, 3];
+            const offset   = LABEL_OFFSET[key] || [-2, 3];
+            // Place the label at center+offset (degrees), not on the dot itself.
+            // This separates the text from the CircleMarker and from India's coastline.
+            const labelPos = center ? [center[0] + offset[0], center[1] + offset[1]] : null;
 
             return (
               <Fragment key={key}>
@@ -262,11 +381,11 @@ export default function WorldMap({ corridors = [], pipelineTs, vesselEstimate = 
                   </CircleMarker>
                 )}
 
-                {/* Corridor name label */}
-                {center && (
+                {/* Corridor name label — at labelPos (center+LABEL_OFFSET), not on the dot */}
+                {labelPos && (
                   <Marker
                     key={`${key}-label`}
-                    position={[center[0] + offset[0], center[1] + offset[1]]}
+                    position={labelPos}
                     icon={makeLabelIcon(label, color)}
                     interactive={false}
                   />
@@ -275,25 +394,8 @@ export default function WorldMap({ corridors = [], pipelineTs, vesselEstimate = 
             );
           })}
 
-          {/* ─ India infrastructure markers ─ */}
-          {showInfra && allInfra.map(site => (
-            <Marker
-              key={site.id}
-              position={[site.lat, site.lng]}
-              icon={makeInfraIcon(site.type)}
-            >
-              <Tooltip direction="top" offset={[0, -6]}>
-                <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
-                  <strong>{site.name}</strong>
-                  <div style={{ color: '#64748b', fontSize: 10 }}>
-                    {site.type === 'spr' ? 'Strategic Petroleum Reserve' :
-                     site.type === 'refinery' ? 'Oil Refinery' : 'Crude Import Port'}
-                  </div>
-                  <div style={{ color: '#475569', fontSize: 9 }}>Real coordinates · Static reference data</div>
-                </div>
-              </Tooltip>
-            </Marker>
-          ))}
+          {/* ─ India infrastructure markers (zoom-aware clustering via InfraLayer) ─ */}
+          <InfraLayer sites={allInfra} showInfra={showInfra} />
         </MapContainer>
       ) : (
         <div style={{ height: '100%', minHeight: 340, borderRadius: 10, border: '1px solid #1f2d45', background: 'rgba(10,14,26,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>

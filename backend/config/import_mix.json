@@ -11,49 +11,109 @@
       "country": "Iraq",
       "import_share_pct": 19.9,
       "transit_days_typical": 12,
-      "_transit_note": "Basra to India west coast via Arabian Sea, ~10-14 days typical"
+      "_transit_note": "Basra to India west coast via Arabian Sea, ~10-14 days typical",
+      "route": {
+        "origin_port": "Basra — Khor al-Amaya / ABOT terminal",
+        "route_path": ["Arabian Gulf", "Strait of Hormuz", "Arabian Sea", "India West Coast (Vadinar/Sikka)"],
+        "chokepoints": ["hormuz"],
+        "transit_days": 12,
+        "_confidence": "estimated"
+      }
     },
     {
       "country": "Saudi Arabia",
       "import_share_pct": 16,
       "transit_days_typical": 10,
-      "_transit_note": "Ras Tanura / Jubail to India west coast, ~8-12 days typical"
+      "_transit_note": "Ras Tanura / Jubail to India west coast, ~8-12 days typical",
+      "route": {
+        "origin_port": "Ras Tanura / Jubail (primary Gulf terminal)",
+        "route_path": ["Arabian Gulf", "Strait of Hormuz", "Arabian Sea", "India West Coast (Vadinar/Sikka)"],
+        "chokepoints": ["hormuz"],
+        "transit_days": 10,
+        "_confidence": "estimated",
+        "_note": "~70% of Saudi India-bound exports route via Ras Tanura (Hormuz). ~30% via Yanbu terminal (Red Sea / Bab-el-Mandeb), captured in red_sea_routing config."
+      }
     },
     {
       "country": "Russia",
       "import_share_pct": 17.9,
       "transit_days_typical": 27,
-      "_transit_note": "Primorsk/Novorossiysk via Suez to India, ~25-30 days; Arctic route not currently used for India. Post-sanctions rerouting via Cape adds ~45 days."
+      "_transit_note": "Primorsk/Novorossiysk via Suez to India, ~25-30 days; Arctic route not currently used for India. Post-sanctions rerouting via Cape adds ~45 days.",
+      "route": {
+        "origin_port": "Novorossiysk (Black Sea) / Primorsk (Baltic)",
+        "route_path": ["Black Sea / Baltic Sea", "Bosphorus Strait", "Mediterranean Sea", "Suez Canal", "Red Sea", "Arabian Sea", "India West Coast"],
+        "chokepoints": ["suez", "russia_route"],
+        "transit_days": 27,
+        "_confidence": "estimated",
+        "_note": "Post-2022 India imports predominantly via shadow fleet. Suez Canal is primary artery; Cape of Good Hope (+15 days) used occasionally as alternate."
+      }
     },
     {
       "country": "UAE",
       "import_share_pct": 11,
       "transit_days_typical": 8,
-      "_transit_note": "Das Island / ADCO fields to India west coast, ~6-10 days"
+      "_transit_note": "Das Island / ADCO fields to India west coast, ~6-10 days",
+      "route": {
+        "origin_port": "Das Island / Ruwais / Jebel Dhanna",
+        "route_path": ["Arabian Gulf", "Strait of Hormuz", "Arabian Sea", "India West Coast (Vadinar/Sikka)"],
+        "chokepoints": ["hormuz"],
+        "transit_days": 8,
+        "_confidence": "estimated"
+      }
     },
     {
       "country": "USA",
       "import_share_pct": 8,
       "transit_days_typical": 37,
-      "_transit_note": "US Gulf Coast (Houston/Corpus Christi) to India east/west coast, ~35-40 days via Cape or Suez"
+      "_transit_note": "US Gulf Coast (Houston/Corpus Christi) to India east/west coast, ~35-40 days via Cape or Suez",
+      "route": {
+        "origin_port": "Houston / Corpus Christi (US Gulf Coast)",
+        "route_path": ["Gulf of Mexico", "Atlantic Ocean", "Cape of Good Hope", "Southern Indian Ocean", "India West Coast"],
+        "chokepoints": ["cape_of_good_hope"],
+        "transit_days": 37,
+        "_confidence": "estimated",
+        "_note": "Most India-bound US cargoes route via Cape of Good Hope (~37 days). Some East Coast US shipments route via Suez (~30 days), but Gulf Coast origin makes Cape more common."
+      }
     },
     {
       "country": "Nigeria",
       "import_share_pct": 2.5,
       "transit_days_typical": 22,
-      "_transit_note": "Bonny terminal to India west coast, ~20-25 days"
+      "_transit_note": "Bonny terminal to India west coast, ~20-25 days",
+      "route": {
+        "origin_port": "Bonny Island / Forcados terminal",
+        "route_path": ["Gulf of Guinea", "South Atlantic Ocean", "Cape of Good Hope", "Southern Indian Ocean", "India West Coast"],
+        "chokepoints": ["cape_of_good_hope"],
+        "transit_days": 22,
+        "_confidence": "estimated"
+      }
     },
     {
       "country": "Kuwait",
       "import_share_pct": 4,
       "transit_days_typical": 10,
-      "_transit_note": "Mina Al Ahmadi to India west coast, ~8-12 days"
+      "_transit_note": "Mina Al Ahmadi to India west coast, ~8-12 days",
+      "route": {
+        "origin_port": "Mina Al Ahmadi (Kuwait Bay)",
+        "route_path": ["Arabian Gulf", "Strait of Hormuz", "Arabian Sea", "India West Coast (Vadinar/Sikka)"],
+        "chokepoints": ["hormuz"],
+        "transit_days": 10,
+        "_confidence": "estimated"
+      }
     },
     {
       "country": "Other",
       "import_share_pct": 20.7,
       "transit_days_typical": 15,
-      "_transit_note": "Weighted average of remaining minor suppliers (Oman, Mexico, Angola, etc.)"
+      "_transit_note": "Weighted average of remaining minor suppliers (Oman, Mexico, Angola, etc.)",
+      "route": {
+        "origin_port": "Various",
+        "route_path": ["Various origins", "Mixed routes", "Indian Ocean", "India West Coast"],
+        "chokepoints": ["hormuz"],
+        "transit_days": 15,
+        "_confidence": "estimated",
+        "_note": "Composite entry. Oman/Angola primarily Hormuz; Mexico/Brazil via Cape of Good Hope."
+      }
     }
   ]
 }

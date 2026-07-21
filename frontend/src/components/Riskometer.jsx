@@ -127,8 +127,11 @@ export default function Riskometer({ corridors = [], scoredAt }) {
       {/* Data provenance caption */}
       <div style={{ fontSize: 10, color: '#334155', textAlign: 'center', marginTop: 4, lineHeight: 1.5 }}>
         {totalEvents} events · 36h decay · 7-day window
+        <div style={{ fontSize: 9, color: '#475569', marginTop: 2, fontFamily: 'monospace' }}>
+          weight_i = severity_i × e^(−λ × t_i) where λ = ln(2)/36
+        </div>
         {scoredAt && (
-          <><br />Scored {new Date(scoredAt).toLocaleTimeString()}</>
+          <> · Scored {new Date(scoredAt).toLocaleTimeString()}</>
         )}
         {isNominal && score === 0 && (
           <><br /><span style={{ color: '#22c55e' }}>✓ Verified calm — data present, no elevated signals</span></>

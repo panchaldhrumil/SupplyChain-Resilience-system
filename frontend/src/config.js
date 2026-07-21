@@ -1,5 +1,5 @@
 // Central API config — all endpoints in one place
-export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
 
 export const ENDPOINTS = {
   riskCorridors:    `${API_BASE}/api/risk-corridors`,

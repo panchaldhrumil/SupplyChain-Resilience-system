@@ -3,6 +3,17 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../config';
 
+// Maps corridor IDs to human-readable labels for route highlighting
+const CORRIDOR_LABELS = {
+  hormuz:            'strait of hormuz',
+  suez:              'suez canal',
+  russia_route:      'russia',
+  cape_of_good_hope: 'cape of good hope',
+  red_sea:           'red sea',
+  bab_el_mandeb:     'bab-el-mandeb',
+  malacca:           'malacca',
+};
+
 export default function ProcurementEngine() {
   const [disruptedId, setDisruptedId]   = useState('Saudi Arabia');
   const [volumePct, setVolumePct]       = useState(20);
@@ -106,6 +117,18 @@ export default function ProcurementEngine() {
             <span>45 Days (Global limit)</span>
           </div>
         </div>
+
+        {/* Corridor disruption indicator */}
+        {data?.disrupted_corridor_applied && (
+          <div style={{
+            padding: '8px 12px', borderRadius: 6,
+            background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+            fontSize: 10, color: '#f87171',
+          }}>
+            🚨 Corridor <strong>{disruptedId.toUpperCase()}</strong> forced to risk=100 in scoring.
+            All suppliers routing through this chokepoint are penalised.
+          </div>
+        )}
       </div>
 
       {/* Recommendations Panel */}
@@ -121,86 +144,201 @@ export default function ProcurementEngine() {
           </div>
         ) : data?.recommendations?.length ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {/* Table / List */}
+            {/* Scoring Errors Alert */}
+            {data.scoring_errors?.length > 0 && (
+              <div style={{
+                padding: '10px 12px', borderRadius: 6,
+                background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+                fontSize: 11, color: '#f87171', marginBottom: 10
+              }}>
+                <strong>Warning:</strong> Some alternative sources failed to score and were skipped:
+                <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                  {data.scoring_errors.map((err, ei) => (
+                    <li key={ei}>{err.country}: {err.error}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Recommendation Cards */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {data.recommendations.map((rec, i) => {
-                const isExcluded = rec.is_sanctioned || rec.transit_days > maxTransit;
-                const exclusionReason = rec.is_sanctioned
-                  ? rec.sanction_note
-                  : rec.transit_days > maxTransit
-                    ? `Transit time (${rec.transit_days}d) exceeds maximum limit (${maxTransit}d)`
-                    : null;
+                const isTransitExcluded  = rec.transit_days > maxTransit;
+                const isSanctionCaution  = rec.is_sanctioned;
+                const exclusionReason    = isTransitExcluded
+                  ? `Transit time (${rec.transit_days}d) exceeds maximum limit (${maxTransit}d)`
+                  : null;
+
+                // Determine which route segments to highlight red (disrupted chokepoint)
+                const disruptedCorridor = data.disrupted_corridor_applied || '';
+                const disruptedLabel    = CORRIDOR_LABELS[disruptedCorridor] || '';
+                const routePassesThroughDisruption = disruptedLabel &&
+                  rec.route?.chokepoints?.some(cp => cp === disruptedCorridor);
 
                 return (
                   <div
                     key={rec.name}
                     style={{
                       padding: '12px 14px', borderRadius: 8,
-                      border: '1px solid var(--border)',
-                      background: isExcluded ? 'rgba(239,68,68,0.02)' : 'rgba(255,255,255,0.02)',
-                      display: 'grid', gridTemplateColumns: '50px 1.5fr 1fr 1fr 80px',
-                      alignItems: 'center', gap: 16,
-                      opacity: isExcluded ? 0.45 : 1.0,
+                      border: `1px solid ${isSanctionCaution ? 'rgba(245,158,11,0.25)' : 'var(--border)'}`,
+                      background: isTransitExcluded
+                        ? 'rgba(239,68,68,0.02)'
+                        : isSanctionCaution
+                          ? 'rgba(245,158,11,0.03)'
+                          : 'rgba(255,255,255,0.02)',
+                      opacity: isTransitExcluded ? 0.45 : 1.0,
                     }}
                   >
-                    {/* Rank */}
-                    <div style={{ fontSize: 18, fontWeight: 700, color: isExcluded ? '#475569' : '#3b82f6', textAlign: 'center' }}>
-                      {isExcluded ? '—' : `#${i + 1}`}
-                    </div>
-
-                    {/* Source info */}
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{rec.name}</div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Grade: {rec.crude_grade}</div>
-                      {rec.route_corridors?.length > 0 && (
-                        <div style={{ fontSize: 9, color: '#64748b', marginTop: 4 }}>
-                          Route chokepoints: {rec.route_corridors.join(', ').toUpperCase()}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Key Attributes */}
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Transit Time</div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>{rec.transit_days} Days</div>
-                      <div style={{ fontSize: 9, color: '#475569' }}>Sourced from import_mix</div>
-                    </div>
-
-                    {/* Cost index & chokepoint risk */}
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cost Discount / Premium</div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: rec.cost_source ? '#22c55e' : 'var(--text-primary)', marginTop: 2 }}>
-                        {rec.cost_index}
+                    {/* Top row: rank / name / transit / cost / score */}
+                    <div style={{
+                      display: 'grid', gridTemplateColumns: '50px 1.5fr 1fr 1fr 100px',
+                      alignItems: 'center', gap: 16,
+                    }}>
+                      {/* Rank */}
+                      <div style={{ fontSize: 18, fontWeight: 700, color: isTransitExcluded ? '#475569' : '#3b82f6', textAlign: 'center' }}>
+                        {isTransitExcluded ? '—' : `#${i + 1}`}
                       </div>
-                      {rec.cost_source && (
-                        <div style={{ fontSize: 8, color: '#475569', marginTop: 2, maxWidth: 140 }} title={rec.cost_source}>
-                          Source: {rec.cost_source}
+
+                      {/* Source info */}
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{rec.name}</div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Grade: {rec.crude_grade}</div>
+                        {routePassesThroughDisruption && (
+                          <div style={{ fontSize: 9, color: '#f87171', marginTop: 2, fontWeight: 600 }}>
+                            ⚠ Routes through disrupted corridor
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Transit Time */}
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Transit Time</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>{rec.transit_days} Days</div>
+                        <div style={{ fontSize: 9, color: '#475569' }}>Sourced from import_mix</div>
+                      </div>
+
+                      {/* Cost index */}
+                      <div>
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cost Discount / Premium</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: rec.cost_source ? '#22c55e' : 'var(--text-primary)', marginTop: 2 }}>
+                          {rec.cost_index}
                         </div>
-                      )}
+                        {rec.cost_source && (
+                          <div style={{ fontSize: 8, color: '#475569', marginTop: 2, maxWidth: 140 }} title={rec.cost_source}>
+                            Source: {rec.cost_source}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Score / Badge column */}
+                      <div style={{ textAlign: 'right' }}>
+                        {isTransitExcluded ? (
+                          <span style={{
+                            fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                            background: 'rgba(239,68,68,0.1)', color: '#ef4444',
+                            border: '1px solid rgba(239,68,68,0.2)',
+                          }} title={exclusionReason}>
+                            EXCLUDED
+                          </span>
+                        ) : (
+                          <div>
+                            {isSanctionCaution && (
+                              <div style={{
+                                fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 3, marginBottom: 4,
+                                background: 'rgba(245,158,11,0.15)', color: '#f59e0b',
+                                border: '1px solid rgba(245,158,11,0.35)', whiteSpace: 'nowrap',
+                              }}>
+                                ⚠ SANCTIONS CAUTION
+                              </div>
+                            )}
+                            <div style={{ fontSize: 16, fontWeight: 700, color: isSanctionCaution ? '#f59e0b' : '#3b82f6' }}>
+                              {rec.final_score.toFixed(0)}
+                            </div>
+                            <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Index</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    {/* Score / Exclusion badge */}
-                    <div style={{ textAlign: 'right' }}>
-                      {isExcluded ? (
-                        <span style={{
-                          fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                          background: 'rgba(239,68,68,0.1)', color: '#ef4444',
-                          border: '1px solid rgba(239,68,68,0.2)',
-                        }} title={exclusionReason}>
-                          EXCLUDED
-                        </span>
-                      ) : (
-                        <div>
-                          <div style={{ fontSize: 16, fontWeight: 700, color: '#3b82f6' }}>{rec.final_score.toFixed(0)}</div>
-                          <div style={{ fontSize: 9, color: 'var(--text-muted)' }}>Index</div>
-                        </div>
-                      )}
-                    </div>
+                    {/* Sanctions caution note */}
+                    {isSanctionCaution && rec.sanction_note && (
+                      <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(245,158,11,0.15)' }}>
+                        ⚠ {rec.sanction_note}
+                      </div>
+                    )}
 
-                    {/* Exclusion tooltip text */}
-                    {isExcluded && exclusionReason && (
-                      <div style={{ gridColumn: '1 / -1', fontSize: 10, color: '#ef4444', marginTop: 4 }}>
+                    {/* Transit exclusion note */}
+                    {isTransitExcluded && exclusionReason && (
+                      <div style={{ fontSize: 10, color: '#ef4444', marginTop: 6 }}>
                         ⚠ {exclusionReason}
+                      </div>
+                    )}
+
+                    {/* ── Route Path Stepper */}
+                    {rec.route?.route_path?.length > 0 && (
+                      <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                        <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 6 }}>
+                          Shipping Route · {rec.route.origin_port}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          {rec.route.route_path.map((segment, si) => {
+                            // Is this segment a known chokepoint on this route?
+                            const isChokepoint = rec.route.chokepoints?.some(cp => {
+                              const label = CORRIDOR_LABELS[cp] || cp.replace(/_/g, ' ');
+                              return segment.toLowerCase().includes(label) ||
+                                     label.includes(segment.toLowerCase().split(' ')[0]);
+                            });
+                            // Is this chokepoint the disrupted one?
+                            const isDisruptedSegment = disruptedLabel &&
+                              isChokepoint &&
+                              rec.route.chokepoints?.some(cp =>
+                                cp === disruptedCorridor &&
+                                (segment.toLowerCase().includes(CORRIDOR_LABELS[cp] || '') ||
+                                 segment.toLowerCase().includes(cp.replace(/_/g, ' ')))
+                              );
+
+                            return (
+                              <span key={si} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span style={{
+                                  fontSize: 9, padding: '2px 7px', borderRadius: 3,
+                                  fontWeight: isChokepoint ? 700 : 400,
+                                  background: isDisruptedSegment
+                                    ? 'rgba(239,68,68,0.18)'
+                                    : isChokepoint
+                                      ? 'rgba(245,158,11,0.12)'
+                                      : 'rgba(255,255,255,0.04)',
+                                  color: isDisruptedSegment
+                                    ? '#f87171'
+                                    : isChokepoint
+                                      ? '#fbbf24'
+                                      : '#64748b',
+                                  border: isDisruptedSegment
+                                    ? '1px solid rgba(239,68,68,0.35)'
+                                    : isChokepoint
+                                      ? '1px solid rgba(245,158,11,0.3)'
+                                      : '1px solid transparent',
+                                }}>
+                                  {segment}
+                                </span>
+                                {si < rec.route.route_path.length - 1 && (
+                                  <span style={{ fontSize: 8, color: '#475569' }}>→</span>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
+                        {rec.route._confidence === 'estimated' && (
+                          <div style={{ fontSize: 8, color: '#475569', marginTop: 4, fontStyle: 'italic' }}>
+                            Route: estimated — not from live AIS tracking
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* LLM Justification */}
+                    {rec.justification && (
+                      <div style={{ marginTop: 8, fontSize: 10, color: '#94a3b8', fontStyle: 'italic', paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+                        💡 {rec.justification}
                       </div>
                     )}
                   </div>
@@ -218,14 +356,21 @@ export default function ProcurementEngine() {
                 Transparent Scoring Algorithm
               </div>
               <div style={{ fontFamily: 'monospace', marginBottom: 4 }}>
-                score = (transit_score * 40%) + (safety_score * 40%) + (reliability_score * 20%)
+                score = (transit_score × 40%) + (safety_score × 40%) + (reliability_score × 20%)
               </div>
-              <div>• <strong>Transit Speed (40%)</strong>: computed as max(0, 100 - (transit_days - 5) * 100/35).</div>
-              <div>• <strong>Chokepoint Safety (40%)</strong>: dynamically calculated as (100 - max(live_corridor_risk)) along the supplier's standard transit route. Currently, Strait of Hormuz risk is scored at 100.</div>
-              <div>• <strong>Supplier Reliability (20%)</strong>: static baseline reliability. UAE (95), Saudi Arabia (95), USA (98), Iraq (85), Nigeria (70), Russia (60).</div>
+              <div>• <strong>Transit Speed (40%)</strong>: max(0, 100 − (transit_days − 5) × 100/35).</div>
+              <div>• <strong>Chokepoint Safety (40%)</strong>: 100 − max(live_corridor_risk for route chokepoints). When a corridor is selected as disrupted, its risk is forced to 100.</div>
+              <div>• <strong>Supplier Reliability (20%)</strong>: baseline reliability — UAE (95), Saudi (95), USA (98), Iraq (85), Kuwait (90), Nigeria (70), Russia (60).</div>
               {data.sanctioned_countries_detected?.length > 0 && (
-                <div style={{ color: '#ef4444', marginTop: 4 }}>
-                  • <strong>OFAC Sanctions Check</strong>: dynamic exclusion triggered for {data.sanctioned_countries_detected.join(', ')} due to recent designates.
+                <div style={{ color: '#f59e0b', marginTop: 4 }}>
+                  • <strong>OFAC Sanctions Penalty</strong>: {data.sanctioned_countries_detected.join(', ')} carry active SDN designations.
+                  Score penalised (not excluded) — multiplier configurable via <code>sanctions_config</code> in scenario_assumptions.json.
+                </div>
+              )}
+              {data.disrupted_corridor_applied && (
+                <div style={{ color: '#f87171', marginTop: 4 }}>
+                  • <strong>Corridor Disruption</strong>: <code>{data.disrupted_corridor_applied}</code> risk forced to 100.
+                  All suppliers whose route traverses this corridor receive safety_score = 0.
                 </div>
               )}
             </div>

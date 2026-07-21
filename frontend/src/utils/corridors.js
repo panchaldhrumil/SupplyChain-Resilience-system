@@ -23,7 +23,7 @@ export const LEVEL_TW = {
 
 // Corridor polyline coordinates [lat, lng] pairs for Leaflet
 export const CORRIDOR_PATHS = {
-  hormuz:            [[26.5, 56.3], [24.5, 58.8]],
+  hormuz:            [[26.57, 56.25], [24.5, 58.8]],   // water passage: Musandam↔Iran narrowest point → Gulf of Oman
   red_sea:           [[12.5, 43.3], [27.6, 34.6]],
   suez:              [[30.5, 32.3], [29.9, 32.6]],
   cape_of_good_hope: [[-34.4, 18.5], [-25.0, 15.0], [-10.0, 17.0]],

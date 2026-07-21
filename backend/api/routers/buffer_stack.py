@@ -149,64 +149,63 @@ def calculate_on_water_days(config_dir: Path) -> dict:
     }
 
 
-def calculate_buffer_coverage_logic(gap_pct: float, duration_days: float, spr_days: float, refinery_days: float) -> dict:
+def calculate_buffer_coverage_logic(
+    gap_pct: float,
+    duration_days: float,
+    spr_days: float,
+    refinery_days: float,
+) -> dict:
     """
-    Core deterministic coverage calculator shared by Module 2 and Module 4.
+    Core deterministic coverage calculator shared by Module 2 (Scenario Simulator)
+    and Module 4 (Reserve Optimizer).
+
+    Returns
+    -------
+    total_cover_days : float
+        How long the combined reserve buffer can sustain the supply gap.
+        Invariant to duration_days — it is a property of gap_pct and reserve levels.
+    reserves_consumed_pct : float
+        Percentage of total reserve buffer consumed by THIS disruption.
+        Changes with BOTH severity (gap_pct) and duration_days, making it
+        the primary metric to display when the user adjusts duration.
+    total_sufficient : bool
+        Whether total_cover_days >= duration_days.
     """
+    total_reserve_days = spr_days + refinery_days
+
     if gap_pct <= 0:
         return {
-            "spr_cover_days": 0.0,
-            "total_cover_days": 0.0,
-            "spr_sufficient": False,
-            "total_sufficient": False,
-            "spr_difference_days": -duration_days,
-            "total_difference_days": -duration_days,
+            "spr_cover_days":        0.0,
+            "total_cover_days":      0.0,
+            "reserves_consumed_pct": 0.0,
+            "spr_sufficient":        True,
+            "total_sufficient":      True,
+            "spr_difference_days":   0.0,
+            "total_difference_days": 0.0,
         }
 
-    gap_fraction = gap_pct / 100.0
-    spr_cover_days = spr_days / gap_fraction
-    total_cover_days = (spr_days + refinery_days) / gap_fraction
+    gap_fraction     = gap_pct / 100.0
+    spr_cover_days   = spr_days         / gap_fraction
+    total_cover_days = total_reserve_days / gap_fraction
 
-    spr_sufficient = spr_cover_days >= duration_days
+    # How much of the total reserve buffer does THIS disruption consume?
+    # Formula: (gap_fraction × duration_days / total_reserve_days) × 100
+    # This changes with both severity (gap_fraction) AND duration_days.
+    reserves_consumed_pct = (
+        round((gap_fraction * duration_days / total_reserve_days) * 100.0, 1)
+        if total_reserve_days > 0 else None
+    )
+
+    spr_sufficient   = spr_cover_days   >= duration_days
     total_sufficient = total_cover_days >= duration_days
 
     return {
-        "spr_cover_days": round(spr_cover_days, 1),
-        "total_cover_days": round(total_cover_days, 1),
-        "spr_sufficient": bool(spr_sufficient),
-        "total_sufficient": bool(total_sufficient),
-        "spr_difference_days": round(spr_cover_days - duration_days, 1),
-        "total_difference_days": round(total_cover_days - duration_days, 1),
-    }
-
-
-def calculate_buffer_coverage_logic(gap_pct: float, duration_days: float, spr_days: float, refinery_days: float) -> dict:
-    """
-    Core deterministic coverage calculator shared by Module 2 and Module 4.
-    """
-    if gap_pct <= 0:
-        return {
-            "spr_cover_days": 0.0,
-            "total_cover_days": 0.0,
-            "spr_sufficient": False,
-            "total_sufficient": False,
-            "spr_difference_days": -duration_days,
-            "total_difference_days": -duration_days,
-        }
-
-    gap_fraction = gap_pct / 100.0
-    spr_cover_days = spr_days / gap_fraction
-    total_cover_days = (spr_days + refinery_days) / gap_fraction
-
-    spr_sufficient = spr_cover_days >= duration_days
-    total_sufficient = total_cover_days >= duration_days
-
-    return {
-        "spr_cover_days": round(spr_cover_days, 1),
-        "total_cover_days": round(total_cover_days, 1),
-        "spr_sufficient": bool(spr_sufficient),
-        "total_sufficient": bool(total_sufficient),
-        "spr_difference_days": round(spr_cover_days - duration_days, 1),
+        "spr_cover_days":        round(spr_cover_days,   1),
+        "total_cover_days":      round(total_cover_days, 1),
+        "reserves_consumed_pct": reserves_consumed_pct,
+        "spr_sufficient":        bool(spr_sufficient),
+        "total_sufficient":      bool(total_sufficient),
+        "spr_difference_days":   round(spr_cover_days   - duration_days, 1),
         "total_difference_days": round(total_cover_days - duration_days, 1),
     }
 
