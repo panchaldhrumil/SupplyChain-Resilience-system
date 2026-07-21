@@ -1,38 +1,21 @@
-"""
-GET /api/corridor-brief?corridor=hormuz
-
-Retrieves the actual stored news articles for that corridor from the last 48 hours,
-and passes ONLY those retrieved snippets to the LLM (if API key is present)
-to synthesize a 2-3 sentence intelligence brief.
-
-If zero articles exist for that corridor in the last 48 hours, returns
-"insufficient recent signal" without calling the LLM.
-
-Key pool: reads GEMINI_API_KEY_1..4 from the environment and uses them in
-round-robin order. If the current key is exhausted (429) or errors, the next
-key is tried automatically. All 4 must fail before falling back to the
-auto-compiled text. Rotation is thread-safe under CPython's GIL via itertools.cycle.
-"""
-
 import os
 import json
 import math
 import itertools
 import logging
 import threading
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date as date_cls
 from typing import Optional
-
 import pandas as pd
-from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi import APIRouter, Query, Request
+
+from api.db import query_df
+from pipeline.qdrant_store import search_by_corridor
 
 router = APIRouter()
 log = logging.getLogger("corridor_brief")
 
-# --------------------------------------------------------------------------
-# Thread-safe class to dynamically read and cycle through Gemini API keys from `.env`
-# --------------------------------------------------------------------------
+
 class DynamicKeyPool:
     def __init__(self):
         self._lock = threading.Lock()
@@ -40,7 +23,6 @@ class DynamicKeyPool:
         self._cycle = None
 
     def _get_clean_keys(self) -> list[str]:
-        # Force reload .env file to pick up any edits on the fly
         from dotenv import load_dotenv
         load_dotenv()
 
@@ -49,9 +31,8 @@ class DynamicKeyPool:
             os.environ.get("GEMINI_API_KEY_2", ""),
             os.environ.get("GEMINI_API_KEY_3", ""),
             os.environ.get("GEMINI_API_KEY_4", ""),
-            os.environ.get("GEMINI_API_KEY", ""),   # legacy single-key fallback
+            os.environ.get("GEMINI_API_KEY", ""),
         ]
-        # Remove empty keys, duplicates, and placeholders
         return list(
             dict.fromkeys(
                 k.strip() for k in raw_keys
@@ -67,7 +48,6 @@ class DynamicKeyPool:
                 self._cycle = None
                 return ""
 
-            # If key list changed (e.g. user added keys to .env), recreate cycle
             if keys != self._last_keys or self._cycle is None:
                 self._last_keys = keys
                 self._cycle = itertools.cycle(keys)
@@ -81,29 +61,27 @@ class DynamicKeyPool:
 _dynamic_pool = DynamicKeyPool()
 
 
-# --------------------------------------------------------------------------
-# Data helpers
-# --------------------------------------------------------------------------
-
-def _load_events(csv_dir: Path, lookback_hours: int = 48) -> pd.DataFrame:
-    path = csv_dir / "macro_events_filtered.csv"
-    if not path.exists():
-        return pd.DataFrame()
-    try:
-        df = pd.read_csv(path, dtype=str, low_memory=False)
-    except Exception:
-        return pd.DataFrame()
-
-    required = {"date", "title", "source", "link", "corridor", "severity", "key_takeaway", "article_text_snippet"}
-    if not required.issubset(df.columns):
-        return pd.DataFrame()
-
-    # Parse date; drop unparseable rows
-    df["_dt"] = pd.to_datetime(df["date"], errors="coerce", utc=True)
-    df = df.dropna(subset=["_dt"])
-
+def _load_events_db(corridor: str, lookback_hours: int = 48) -> pd.DataFrame:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
-    df = df[df["_dt"] >= cutoff].copy()
+    df = query_df("""
+        SELECT date, title, source, link, corridor, severity, key_takeaway, article_text_snippet
+        FROM macro_events
+        WHERE corridor = %s AND created_at >= %s
+        ORDER BY created_at DESC
+        LIMIT 5
+    """, params=(corridor, cutoff))
+    if df.empty:
+        df = query_df("""
+            SELECT date, title, source, link, corridor, severity, key_takeaway, article_text_snippet
+            FROM macro_events
+            WHERE corridor = %s
+            ORDER BY date DESC, severity DESC
+            LIMIT 5
+        """, params=(corridor,))
+    if df.empty:
+        return pd.DataFrame()
+
+    df["_dt"] = pd.to_datetime(df["date"], errors="coerce", utc=True)
     return df
 
 
@@ -118,10 +96,6 @@ def _str(v, default=''):
     s = str(v)
     return default if s in ('nan', 'None') else s
 
-
-# --------------------------------------------------------------------------
-# LLM brief synthesis — round-robin with per-key failover and model fallback
-# --------------------------------------------------------------------------
 
 def _build_prompt(corridor: str, articles: list) -> str:
     articles_text = ""
@@ -147,17 +121,8 @@ def _build_prompt(corridor: str, articles: list) -> str:
 
 
 def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
-    """
-    Call Gemini with round-robin key rotation + per-key failover + model fallback.
-    Tries multiple Gemini models sequentially to handle model unavailability.
-
-    Returns:
-        (brief_text, status)
-        status: "ok" | "fallback_no_key" | "fallback_all_keys_failed"
-    """
     active_keys = _dynamic_pool.get_all_keys()
     if not active_keys:
-        # No keys at all — auto-compile
         return _auto_compile(articles), "fallback_no_key"
 
     try:
@@ -168,11 +133,10 @@ def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
     prompt = _build_prompt(corridor, articles)
     tried_keys: set[str] = set()
 
-    # Define fallback models to try (preferring latest Gemini flash models)
     models_to_try = [
-        'gemini-2.5-flash',  # Primary / latest flash candidate
-        'gemini-2.0-flash',  # Secondary / current flash
-        'gemini-1.5-flash',  # Legacy fallback
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
     ]
 
     for _ in range(len(active_keys)):
@@ -188,33 +152,17 @@ def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
                     model=model_name,
                     contents=prompt,
                 )
-                log.info(
-                    "corridor_brief: key ending …%s succeeded using model=%s for corridor=%s",
-                    api_key[-4:], model_name, corridor,
-                )
                 return response.text.strip(), "ok"
 
-            except Exception as exc:
-                err_str = str(exc)
-                log.warning(
-                    "corridor_brief: key …%s failed with model=%s (%s) — trying fallback.",
-                    api_key[-4:], model_name, err_str[:80],
-                )
-                continue  # try next model in fallback list
+            except Exception:
+                continue
 
-        # If all models failed for this key, proceed to next key
         continue
 
-    # All keys & models exhausted for this request
-    log.error(
-        "corridor_brief: all %d key(s) failed across all models for corridor=%s — returning auto-compiled fallback.",
-        len(active_keys), corridor,
-    )
     return _auto_compile(articles), "fallback_all_keys_failed"
 
 
 def _auto_compile(articles: list) -> str:
-    """Human-readable fallback when no LLM key is available."""
     if not articles:
         return "No recent articles available for this corridor."
     lines = []
@@ -225,52 +173,54 @@ def _auto_compile(articles: list) -> str:
     return "(Auto-compiled) Recent updates:\n" + "\n".join(lines)
 
 
-# --------------------------------------------------------------------------
-# Endpoint
-# --------------------------------------------------------------------------
-
 @router.get("/corridor-brief")
 def get_corridor_brief(
     request: Request,
     corridor: str = Query(..., description="Corridor ID: hormuz / red_sea / suez / cape_of_good_hope / russia_route / malacca"),
 ):
-    csv_dir: Path = request.app.state.csv_dir
-    df = _load_events(csv_dir, lookback_hours=48)
-
     active_keys = _dynamic_pool.get_all_keys()
+    primary_key = active_keys[0] if active_keys else ""
 
-    if df.empty:
-        return {
-            "corridor":    corridor,
-            "brief":       "Insufficient recent signal (no news articles parsed for this corridor in the last 48 hours).",
-            "articles":    [],
-            "llm_status":  "insufficient_signal",
-            "keys_in_pool": len(active_keys),
-        }
+    qdrant_results = search_by_corridor(
+        corridor=corridor,
+        query_text=f"security disruption oil tanker shipping risk in {corridor}",
+        limit=5,
+        api_key=primary_key,
+    )
 
-    sub = df[df["corridor"] == corridor].copy()
-    if sub.empty:
-        return {
-            "corridor":    corridor,
-            "brief":       "Insufficient recent signal (no news articles parsed for this corridor in the last 48 hours).",
-            "articles":    [],
-            "llm_status":  "insufficient_signal",
-            "keys_in_pool": len(active_keys),
-        }
-
-    # Format articles for prompt & response
     articles = []
-    for _, row in sub.head(5).iterrows():
-        articles.append({
-            "title":        _str(row.get("title")),
-            "source":       _str(row.get("source")),
-            "link":         _str(row.get("link")),
-            "key_takeaway": _str(row.get("key_takeaway")),
-            "snippet":      _str(row.get("article_text_snippet"))[:250],
-            "date":         row["_dt"].isoformat(),
-        })
+    if qdrant_results:
+        for item in qdrant_results:
+            articles.append({
+                "title":        _str(item.get("title")),
+                "source":       _str(item.get("source")),
+                "link":         _str(item.get("link")),
+                "key_takeaway": _str(item.get("key_takeaway")),
+                "snippet":      _str(item.get("article_text_snippet"))[:250],
+                "date":         _str(item.get("date")),
+            })
+    else:
+        df = _load_events_db(corridor=corridor, lookback_hours=48)
+        if not df.empty:
+            for _, row in df.iterrows():
+                articles.append({
+                    "title":        _str(row.get("title")),
+                    "source":       _str(row.get("source")),
+                    "link":         _str(row.get("link")),
+                    "key_takeaway": _str(row.get("key_takeaway")),
+                    "snippet":      _str(row.get("article_text_snippet"))[:250],
+                    "date":         row["_dt"].isoformat() if pd.notna(row["_dt"]) else _str(row.get("date")),
+                })
 
-    # Call RAG generator (round-robin key pool with failover)
+    if not articles:
+        return {
+            "corridor":     corridor,
+            "brief":        "Insufficient recent signal (no news articles parsed for this corridor in the last 48 hours).",
+            "articles":     [],
+            "llm_status":   "insufficient_signal",
+            "keys_in_pool": len(active_keys),
+        }
+
     brief, llm_status = synthesize_brief(corridor, articles)
 
     return {

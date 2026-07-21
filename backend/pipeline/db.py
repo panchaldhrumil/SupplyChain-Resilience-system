@@ -1,0 +1,358 @@
+import hashlib
+import json
+from datetime import datetime, timezone
+
+import psycopg2
+
+from pipeline.settings import DATABASE_URL
+
+
+def get_connection():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL is not set")
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+    return conn
+
+
+def init_schema(conn):
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS macro_events (
+                id SERIAL PRIMARY KEY,
+                date DATE,
+                title TEXT,
+                source TEXT,
+                link TEXT,
+                category TEXT,
+                affected_sectors TEXT,
+                affected_companies TEXT,
+                buffer_layer TEXT DEFAULT 'none',
+                corridor TEXT DEFAULT 'none',
+                severity INTEGER DEFAULT 0,
+                extracted_numbers TEXT,
+                key_takeaway TEXT,
+                article_text_snippet TEXT,
+                fetch_status TEXT,
+                llm_severity INTEGER,
+                llm_confidence FLOAT,
+                is_genuine_disruption TEXT,
+                llm_corridor TEXT,
+                llm_justification TEXT,
+                review_flagged BOOLEAN,
+                llm_status TEXT,
+                content_hash TEXT UNIQUE,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_me_date ON macro_events (date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_me_corridor ON macro_events (corridor)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_me_category ON macro_events (category)")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS commodity_prices (
+                id SERIAL PRIMARY KEY,
+                date DATE,
+                ticker TEXT,
+                label TEXT,
+                open FLOAT,
+                high FLOAT,
+                low FLOAT,
+                close FLOAT,
+                volume BIGINT,
+                fetched_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(date, ticker)
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS sanctions (
+                id SERIAL PRIMARY KEY,
+                ent_num TEXT UNIQUE,
+                sdn_name TEXT,
+                sdn_type TEXT,
+                program TEXT,
+                title TEXT,
+                call_sign TEXT,
+                vess_type TEXT,
+                tonnage TEXT,
+                grt TEXT,
+                vess_flag TEXT,
+                vess_owner TEXT,
+                remarks TEXT,
+                fetched_at TIMESTAMPTZ DEFAULT NOW(),
+                new_since_last_run BOOLEAN DEFAULT FALSE
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id SERIAL PRIMARY KEY,
+                cycle_id TEXT,
+                triggered_at TIMESTAMPTZ,
+                corridor TEXT,
+                score_prev FLOAT,
+                score_now FLOAT,
+                threshold FLOAT,
+                signal_detected_at TIMESTAMPTZ,
+                scenario_computed_at TIMESTAMPTZ,
+                recommendation_generated_at TIMESTAMPTZ,
+                latency_ms INTEGER,
+                supply_gap_pct FLOAT,
+                coverage_days FLOAT,
+                buffer_status TEXT,
+                top_recommendation TEXT,
+                top_score FLOAT,
+                all_affected_suppliers TEXT
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS corridor_score_history (
+                id SERIAL PRIMARY KEY,
+                ts TIMESTAMPTZ DEFAULT NOW(),
+                cycle_id TEXT,
+                corridor TEXT,
+                score FLOAT,
+                level TEXT
+            )
+        """)
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_csh_corridor ON corridor_score_history (corridor)")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS agent_state (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                scores JSONB,
+                saved_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+
+
+def compute_content_hash(title):
+    return hashlib.sha256(str(title).encode()).hexdigest()
+
+
+def fetch_existing_hashes(conn):
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT content_hash FROM macro_events WHERE content_hash IS NOT NULL")
+            return {row[0] for row in cur.fetchall()}
+    except Exception as e:
+        print(f"[DB] fetch_existing_hashes: {e}")
+        return set()
+
+
+def _safe_int(v, default=0):
+    try:
+        if v is None or v == "":
+            return default
+        return int(float(v))
+    except Exception:
+        return default
+
+
+def _safe_float(v, default=None):
+    try:
+        if v is None or v == "":
+            return default
+        f = float(v)
+        return None if (f != f) else f
+    except Exception:
+        return default
+
+
+def upsert_macro_events(conn, rows):
+    if not rows:
+        return 0, 0
+    inserted = skipped = 0
+    with conn.cursor() as cur:
+        for row in rows:
+            h = compute_content_hash(row.get("title", ""))
+            try:
+                cur.execute("""
+                    INSERT INTO macro_events (
+                        date, title, source, link, category,
+                        affected_sectors, affected_companies,
+                        buffer_layer, corridor, severity,
+                        extracted_numbers, key_takeaway,
+                        article_text_snippet, fetch_status, content_hash
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (content_hash) DO NOTHING
+                """, (
+                    str(row.get("event_date", ""))[:10] or None,
+                    str(row.get("title", "")),
+                    str(row.get("source", "")),
+                    str(row.get("link", "")),
+                    str(row.get("category", "")),
+                    str(row.get("affected_sectors", "")),
+                    str(row.get("affected_companies", "")),
+                    str(row.get("buffer_layer", "none") or "none"),
+                    str(row.get("corridor", "none") or "none"),
+                    _safe_int(row.get("severity"), 0),
+                    str(row.get("extracted_numbers", "")),
+                    str(row.get("key_takeaway", "")),
+                    str(row.get("article_text_snippet", "")),
+                    str(row.get("fetch_status", "")),
+                    h,
+                ))
+                if cur.rowcount > 0:
+                    inserted += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                print(f"[DB] upsert_macro_events row failed: {e}")
+    return inserted, skipped
+
+
+def upsert_commodity_prices(conn, rows):
+    if not rows:
+        return 0
+    count = 0
+    with conn.cursor() as cur:
+        for row in rows:
+            try:
+                cur.execute("""
+                    INSERT INTO commodity_prices (date, ticker, label, open, high, low, close, volume)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (date, ticker) DO NOTHING
+                """, (
+                    str(row.get("date", ""))[:10] or None,
+                    str(row.get("ticker", "")),
+                    str(row.get("label", "")),
+                    _safe_float(row.get("open")),
+                    _safe_float(row.get("high")),
+                    _safe_float(row.get("low")),
+                    _safe_float(row.get("close")),
+                    _safe_int(row.get("volume"), 0),
+                ))
+                if cur.rowcount > 0:
+                    count += 1
+            except Exception as e:
+                print(f"[DB] upsert_commodity_prices row failed: {e}")
+    return count
+
+
+def upsert_sanctions(conn, rows):
+    if not rows:
+        return 0
+    count = 0
+    with conn.cursor() as cur:
+        for row in rows:
+            ent = str(row.get("ent_num", "")).strip()
+            if not ent:
+                continue
+            try:
+                is_new = str(row.get("new_since_last_run", "False")).strip().lower() in ("true", "1", "yes")
+                cur.execute("""
+                    INSERT INTO sanctions (
+                        ent_num, sdn_name, sdn_type, program, title,
+                        call_sign, vess_type, tonnage, grt, vess_flag,
+                        vess_owner, remarks, new_since_last_run
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (ent_num) DO UPDATE SET
+                        new_since_last_run = EXCLUDED.new_since_last_run,
+                        fetched_at = NOW()
+                """, (
+                    ent,
+                    str(row.get("sdn_name", "")),
+                    str(row.get("sdn_type", "")),
+                    str(row.get("program", "")),
+                    str(row.get("title", "")),
+                    str(row.get("call_sign", "")),
+                    str(row.get("vess_type", "")),
+                    str(row.get("tonnage", "")),
+                    str(row.get("grt", "")),
+                    str(row.get("vess_flag", "")),
+                    str(row.get("vess_owner", "")),
+                    str(row.get("remarks", "")),
+                    is_new,
+                ))
+                count += 1
+            except Exception as e:
+                print(f"[DB] upsert_sanctions row failed: {e}")
+    return count
+
+
+def get_existing_sanction_ids(conn):
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ent_num FROM sanctions")
+            return {str(r[0]).strip() for r in cur.fetchall()}
+    except Exception:
+        return set()
+
+
+def append_alert(conn, row):
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO alerts (
+                    cycle_id, triggered_at, corridor,
+                    score_prev, score_now, threshold,
+                    signal_detected_at, scenario_computed_at,
+                    recommendation_generated_at, latency_ms,
+                    supply_gap_pct, coverage_days, buffer_status,
+                    top_recommendation, top_score, all_affected_suppliers
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """, (
+                str(row.get("cycle_id", "")),
+                row.get("triggered_at"),
+                str(row.get("corridor", "")),
+                _safe_float(row.get("score_prev")),
+                _safe_float(row.get("score_now")),
+                _safe_float(row.get("threshold")),
+                row.get("signal_detected_at"),
+                row.get("scenario_computed_at"),
+                row.get("recommendation_generated_at"),
+                _safe_int(row.get("latency_ms")),
+                _safe_float(row.get("supply_gap_pct")),
+                _safe_float(row.get("coverage_days")),
+                str(row.get("buffer_status", "")),
+                str(row.get("top_recommendation", "")),
+                _safe_float(row.get("top_score")),
+                str(row.get("all_affected_suppliers", "")),
+            ))
+    except Exception as e:
+        print(f"[DB] append_alert failed: {e}")
+
+
+def append_score_history(conn, scores, cycle_id):
+    try:
+        now_ts = datetime.now(timezone.utc)
+        with conn.cursor() as cur:
+            for corridor, score in scores.items():
+                score_val = round(float(score), 1)
+                level = "red" if score_val >= 66 else "amber" if score_val >= 33 else "green"
+                cur.execute("""
+                    INSERT INTO corridor_score_history (ts, cycle_id, corridor, score, level)
+                    VALUES (%s,%s,%s,%s,%s)
+                """, (now_ts, cycle_id, corridor, score_val, level))
+    except Exception as e:
+        print(f"[DB] append_score_history failed: {e}")
+
+
+def save_agent_state(conn, scores):
+    try:
+        now_ts = datetime.now(timezone.utc)
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO agent_state (id, scores, saved_at)
+                VALUES (1, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    scores = EXCLUDED.scores,
+                    saved_at = EXCLUDED.saved_at
+            """, (json.dumps(scores), now_ts))
+    except Exception as e:
+        print(f"[DB] save_agent_state failed: {e}")
+
+
+def load_agent_state(conn):
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT scores FROM agent_state WHERE id = 1")
+            row = cur.fetchone()
+            if row and row[0]:
+                return {"scores": row[0]}
+    except Exception:
+        pass
+    return {}

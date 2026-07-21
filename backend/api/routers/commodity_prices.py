@@ -1,43 +1,37 @@
-"""
-GET /api/commodity-prices?ticker=BZ=F&days=30
-
-Returns OHLCV time series for Brent crude (BZ=F), WTI crude (CL=F),
-and USD/INR (INR=X) from commodity_prices.csv written by fetch_commodity_prices().
-
-Real data source: commodity_prices.csv (fetched via yfinance from Yahoo Finance)
-"""
-
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+from datetime import datetime, timezone, timedelta, date as date_cls
 from typing import Optional
-
 import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException
+
+from api.db import query_df
 
 router = APIRouter()
 
 _VALID_TICKERS = {"BZ=F", "CL=F", "INR=X"}
 
 
+def _safe_float(v) -> Optional[float]:
+    try:
+        f = float(v)
+        return None if (f != f) else round(f, 4)
+    except Exception:
+        return None
+
+
+def _safe_int(v) -> Optional[int]:
+    try:
+        return int(float(v))
+    except Exception:
+        return None
+
+
 @router.get("/commodity-prices")
 def get_commodity_prices(
     request: Request,
-    ticker:  Optional[str] = Query(None, description="Ticker: BZ=F | CL=F | INR=X. Omit for all."),
-    days:    int            = Query(30,   description="Lookback window in days", le=365),
+    ticker: Optional[str] = Query(None, description="Ticker: BZ=F | CL=F | INR=X. Omit for all."),
+    days: int = Query(30, description="Lookback window in days", le=365),
 ):
-    csv_dir: Path = request.app.state.csv_dir
-    path = csv_dir / "commodity_prices.csv"
-
-    if not path.exists():
-        return {
-            "series":      [],
-            "data_source": "commodity_prices.csv not found — run live_macro_pipeline.py first",
-        }
-
-    try:
-        df = pd.read_csv(path, dtype=str, low_memory=False)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"CSV read error: {e}")
+    cutoff = date_cls.today() - timedelta(days=days)
 
     if ticker:
         t = ticker.upper().strip()
@@ -46,19 +40,28 @@ def get_commodity_prices(
                 status_code=400,
                 detail=f"Invalid ticker '{ticker}'. Valid: {sorted(_VALID_TICKERS)}",
             )
-        df = df[df["ticker"].str.upper().str.strip() == t]
+        df = query_df("""
+            SELECT date, ticker, label, open, high, low, close, volume
+            FROM commodity_prices
+            WHERE date >= %s AND UPPER(TRIM(ticker)) = %s
+            ORDER BY date ASC
+        """, params=(cutoff, t))
+    else:
+        df = query_df("""
+            SELECT date, ticker, label, open, high, low, close, volume
+            FROM commodity_prices
+            WHERE date >= %s
+            ORDER BY date ASC
+        """, params=(cutoff,))
+
+    if df.empty:
+        return {
+            "series":      [],
+            "data_source": "Neon DB — commodity_prices table",
+        }
 
     df["_dt"] = pd.to_datetime(df["date"], errors="coerce", utc=True)
     df = df.dropna(subset=["_dt"])
-
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    df = df[df["_dt"] >= cutoff]
-    df = df.sort_values("_dt", ascending=True)
-
-    # Return grouped by ticker
-    for col in ["open", "high", "low", "close"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
 
     series = []
     for tkr, grp in df.groupby("ticker"):
@@ -83,20 +86,5 @@ def get_commodity_prices(
         "series":      series,
         "days":        days,
         "as_of":       datetime.now(timezone.utc).isoformat(),
-        "data_source": "commodity_prices.csv (yfinance / Yahoo Finance via live_macro_pipeline.py)",
+        "data_source": "Neon DB — commodity_prices table",
     }
-
-
-def _safe_float(v) -> Optional[float]:
-    try:
-        f = float(v)
-        return None if (f != f) else round(f, 4)  # NaN check
-    except Exception:
-        return None
-
-
-def _safe_int(v) -> Optional[int]:
-    try:
-        return int(float(v))
-    except Exception:
-        return None

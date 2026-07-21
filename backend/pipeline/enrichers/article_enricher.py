@@ -1,26 +1,11 @@
-"""
-article_enricher.py
-====================
-Fetches full article text and extracts structured data from it.
-
-Provides:
-  _resolve_google_news_url  — resolve Google News redirect URLs
-  _fetch_article_text       — three-tier fetch (newspaper3k → BS4 → empty)
-  _extract_numbers          — regex extraction keyed by category
-  _extract_key_takeaway     — highest-signal sentence extraction
-  enrich_item               — enrich a single row dict
-  enrich_dataframe          — enrich a whole DataFrame, skipping known hashes
-  fetch_existing_hashes     — query Postgres for already-stored content_hash values
-"""
-
 import re
 import time
-import base64
 import hashlib
 
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import base64
 
 from pipeline.settings import (
     USER_AGENT,
@@ -28,19 +13,10 @@ from pipeline.settings import (
     ARTICLE_RETRIES,
     ARTICLE_FETCH_DELAY,
     MAX_LLM_CLASSIFICATIONS_PER_RUN,
+    GEMINI_API_KEY,
 )
 from pipeline.config import NUMERIC_PATTERNS, TAKEAWAY_MARKERS
 
-# db_writer — lazy import; only present when running with Postgres
-try:
-    import db_writer  # type: ignore[import]
-except ModuleNotFoundError:
-    db_writer = None  # type: ignore[assignment]
-
-
-# --------------------------------------------------------------------------
-# URL RESOLUTION
-# --------------------------------------------------------------------------
 
 def _domain(url):
     try:
@@ -50,26 +26,19 @@ def _domain(url):
 
 
 def _resolve_google_news_url(google_url):
-    """
-    Three-method Google News URL resolver:
-    Method 1: base64 decode from URL path (fastest, no network)
-    Method 2: requests follow redirect (network, 1 call)
-    Method 3: newspaper3k built-in resolver
-    """
     if "news.google.com" not in google_url:
         return google_url
 
-    # Method 1 — base64 decode
     try:
-        path   = urlparse(google_url).path
-        parts  = path.split("/articles/")
+        path = urlparse(google_url).path
+        parts = path.split("/articles/")
         if len(parts) >= 2:
             encoded = parts[1].split("?")[0]
             for pad in range(4):
                 try:
-                    padded        = encoded + "=" * pad
+                    padded = encoded + "=" * pad
                     decoded_bytes = base64.urlsafe_b64decode(padded)
-                    decoded_text  = decoded_bytes.decode("utf-8", errors="ignore")
+                    decoded_text = decoded_bytes.decode("utf-8", errors="ignore")
                     match = re.search(r"https?://[^\x00-\x1f\s\"\\]+", decoded_text)
                     if match:
                         candidate = match.group(0)
@@ -80,7 +49,6 @@ def _resolve_google_news_url(google_url):
     except Exception:
         pass
 
-    # Method 2 — requests redirect follow
     try:
         resp = requests.get(
             google_url,
@@ -93,7 +61,6 @@ def _resolve_google_news_url(google_url):
     except Exception:
         pass
 
-    # Method 3 — newspaper3k
     try:
         import newspaper
         article = newspaper.Article(google_url)
@@ -106,27 +73,13 @@ def _resolve_google_news_url(google_url):
     return google_url
 
 
-# --------------------------------------------------------------------------
-# ARTICLE FETCH
-# --------------------------------------------------------------------------
-
 def _fetch_article_text(url):
-    """
-    Fetch article text with three-tier fallback:
-    Tier 1: newspaper3k (best, handles most paywalls + redirects)
-    Tier 2: requests + BeautifulSoup (fallback for sites newspaper3k fails)
-    Tier 3: return empty (graceful fail, never crashes pipeline)
-    """
     headers = {"User-Agent": USER_AGENT}
 
-    # First resolve Google News redirect
     resolved_url = _resolve_google_news_url(url)
     if resolved_url == url and "news.google.com" in url:
         try:
-            resp = requests.get(
-                url, headers=headers, timeout=ARTICLE_TIMEOUT,
-                allow_redirects=True
-            )
+            resp = requests.get(url, headers=headers, timeout=ARTICLE_TIMEOUT, allow_redirects=True)
             if resp.url and "news.google.com" not in resp.url:
                 resolved_url = resp.url
             else:
@@ -134,7 +87,6 @@ def _fetch_article_text(url):
         except Exception:
             return "", "unresolved_url"
 
-    # Tier 1 — newspaper3k
     try:
         import newspaper
         article = newspaper.Article(resolved_url)
@@ -146,7 +98,6 @@ def _fetch_article_text(url):
     except Exception:
         pass
 
-    # Tier 2 — requests + BeautifulSoup
     for attempt in range(ARTICLE_RETRIES + 1):
         try:
             resp = requests.get(
@@ -160,11 +111,11 @@ def _fetch_article_text(url):
 
             _soup = BeautifulSoup(resp.content, "html.parser")
             for tag in _soup(["script", "style", "nav", "header",
-                              "footer", "aside", "form", "iframe", "noscript"]):
+                               "footer", "aside", "form", "iframe", "noscript"]):
                 tag.decompose()
 
             article_tag = _soup.find("article")
-            paragraphs  = article_tag.find_all("p") if article_tag else _soup.find_all("p")
+            paragraphs = article_tag.find_all("p") if article_tag else _soup.find_all("p")
             text = " ".join(p.get_text(" ", strip=True) for p in paragraphs)
             text = re.sub(r"\s+", " ", text).strip()
 
@@ -179,10 +130,6 @@ def _fetch_article_text(url):
 
     return "", "failed"
 
-
-# --------------------------------------------------------------------------
-# DATA EXTRACTION
-# --------------------------------------------------------------------------
 
 def _extract_numbers(category, text):
     if not text:
@@ -204,7 +151,6 @@ def _extract_numbers(category, text):
 def _extract_key_takeaway(text, max_sentences=3):
     if not text:
         return ""
-
     sentences = re.split(r"(?<=[.!?])\s+", text)
     scored = []
     for idx, s in enumerate(sentences):
@@ -222,10 +168,6 @@ def _extract_key_takeaway(text, max_sentences=3):
     top = [s for _, _, s in chosen]
     return " ".join(top).strip()[:600]
 
-
-# --------------------------------------------------------------------------
-# ENRICHMENT
-# --------------------------------------------------------------------------
 
 def enrich_item(row):
     link = row.get("link", "")
@@ -250,13 +192,13 @@ def enrich_item(row):
         }
 
     if status == "success":
-        numbers  = _extract_numbers(category, text)
+        numbers = _extract_numbers(category, text)
         takeaway = _extract_key_takeaway(text)
-        snippet  = text[:500]
+        snippet = text[:500]
     else:
-        numbers  = ""
+        numbers = ""
         takeaway = ""
-        snippet  = text[:500] if text else ""
+        snippet = text[:500] if text else ""
 
     return {
         "extracted_numbers": numbers,
@@ -267,28 +209,16 @@ def enrich_item(row):
 
 
 def fetch_existing_hashes(conn):
-    """
-    Query Postgres for every content_hash already stored in macro_events.
-    Returns a set() of hex digest strings. Returns an empty set (never
-    raises) if the query fails.
-    """
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT content_hash FROM macro_events")
+            cur.execute("SELECT content_hash FROM macro_events WHERE content_hash IS NOT NULL")
             return {row[0] for row in cur.fetchall()}
     except Exception as e:
-        print(f"   [!] Could not fetch existing content hashes ({e}); "
-              f"will enrich all surviving items this run.")
+        print(f"   [!] Could not fetch existing content hashes ({e}); will enrich all surviving items this run.")
         return set()
 
 
 def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key=""):
-    """
-    Fetch every surviving article NOT already present in existing_hashes
-    and attach enrichment columns.
-    Then, if llm_classify is True, sample at most 40 articles (ranked by severity/recency)
-    and validate them using Google Gemini 2.0 Flash with rate-limit protections.
-    """
     from .llm_classifier import classify_with_llm
     import pandas as pd
 
@@ -298,10 +228,7 @@ def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key="
     to_enrich_mask = []
     skip_count = 0
     for title in df["title"]:
-        if db_writer is not None:
-            h = db_writer.compute_content_hash(title)
-        else:
-            h = hashlib.sha256(str(title).encode()).hexdigest()
+        h = hashlib.sha256(str(title).encode()).hexdigest()
         already_known = h in existing_hashes
         to_enrich_mask.append(not already_known)
         if already_known:
@@ -322,7 +249,7 @@ def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key="
             continue
 
         domain = _domain(row.get("link", ""))
-        _safe_title = row['title'][:50].encode('ascii', errors='replace').decode('ascii')
+        _safe_title = row["title"][:50].encode("ascii", errors="replace").decode("ascii")
         print(f"  [{i}/{total}] {row.get('category','?'):16s} | {domain or 'no-domain'} | {_safe_title}...")
         result = enrich_item(row)
         enriched_records.append(result)
@@ -335,7 +262,6 @@ def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key="
     enrich_df = enrich_df.reset_index(drop=True)
     df_combined = pd.concat([df, enrich_df], axis=1)
 
-    # ---- Rate-limit-safe Gemini validation sample (Capped at 40) ----
     llm_cols = ["llm_severity", "llm_confidence", "is_genuine_disruption",
                 "llm_corridor", "llm_justification", "review_flagged", "llm_status"]
 
@@ -359,7 +285,6 @@ def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key="
                 by=["severity_numeric", "parsed_date"],
                 ascending=[False, False]
             )
-
             sampled_indices = candidates.index[:MAX_LLM_CLASSIFICATIONS_PER_RUN]
             print(f"Sampling {len(sampled_indices)} out of {len(candidates)} eligible articles for AI validation...")
 
@@ -377,11 +302,8 @@ def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key="
 
                 flag_str = " [REVIEW_FLAGGED]" if llm_res.get("review_flagged") else ""
                 print(f"       -> llm_severity={llm_res.get('llm_severity')} status={llm_res.get('llm_status')}{flag_str}")
-
-                # Gemini free tier safety delay: 4.0s (15 requests/minute max)
                 time.sleep(4.0)
 
-            # Mark all other rows as skipped_capped
             df_combined.loc[~df_combined.index.isin(sampled_indices), "llm_status"] = "skipped_capped"
         else:
             print("No eligible articles found for LLM validation.")
@@ -393,5 +315,17 @@ def enrich_dataframe(df, existing_hashes=None, llm_classify=False, llm_api_key="
         df_combined = df_combined.drop(columns=["severity_numeric"])
     if "parsed_date" in df_combined.columns:
         df_combined = df_combined.drop(columns=["parsed_date"])
+
+    try:
+        from pipeline.qdrant_store import upsert_articles as _qdrant_upsert
+        qdrant_rows = [
+            r for r in df_combined.to_dict("records")
+            if r.get("article_text_snippet") or r.get("key_takeaway")
+        ]
+        if qdrant_rows:
+            _key = llm_api_key or GEMINI_API_KEY
+            _qdrant_upsert(qdrant_rows, api_key=_key)
+    except Exception as e:
+        print(f"[Qdrant] upsert skipped: {e}")
 
     return df_combined

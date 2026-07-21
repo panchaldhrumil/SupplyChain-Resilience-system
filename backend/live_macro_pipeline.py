@@ -1,24 +1,3 @@
-"""
-live_macro_pipeline.py
-========================
-Compatibility entry-point wrapper.
-
-All business logic has been moved to backend/pipeline/.
-
-This file is intentionally kept as a thin shim so that:
-  - Any existing scheduler or cron that calls
-        python live_macro_pipeline.py --from-date ...
-    continues to work without change.
-  - All imports from external code that reference symbols defined here
-    continue to resolve (via re-exports below).
-
-DO NOT add business logic here.  Edit the appropriate module under pipeline/.
-"""
-
-# --------------------------------------------------------------------------
-# Force UTF-8 stdout/stderr on Windows (cp1252 terminals crash on ₹, →, etc.)
-# Must come before ALL other imports so every print() in every module is safe.
-# --------------------------------------------------------------------------
 import sys as _sys
 if getattr(_sys.stdout, "encoding", "utf-8").lower() != "utf-8":
     try:
@@ -33,10 +12,7 @@ if getattr(_sys.stderr, "encoding", "utf-8").lower() != "utf-8":
         import io as _io
         _sys.stderr = _io.TextIOWrapper(_sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# --------------------------------------------------------------------------
-# Re-export public symbols so existing callers don't break
-# --------------------------------------------------------------------------
-from pipeline.config import (  # noqa: F401
+from pipeline.config import (
     MACRO_QUERIES,
     IMPACT_MAP,
     CORRIDOR_IMPACT_MAP,
@@ -57,8 +33,9 @@ from pipeline.config import (  # noqa: F401
     _OFAC_SDN_URL,
     _OFAC_SDN_COLS,
     _COMMODITY_TICKERS,
+    _CORRIDOR_NO_MATCH,
 )
-from pipeline.settings import (  # noqa: F401
+from pipeline.settings import (
     DEFAULT_OUTPUT_DIR,
     REQUEST_DELAY,
     ARTICLE_FETCH_DELAY,
@@ -70,7 +47,7 @@ from pipeline.settings import (  # noqa: F401
     GEMINI_API_KEY,
     MAX_LLM_CLASSIFICATIONS_PER_RUN,
 )
-from pipeline.processors import (  # noqa: F401
+from pipeline.processors import (
     _get_impact,
     apply_corridor_impact,
     _deduplicate_day_group,
@@ -79,65 +56,52 @@ from pipeline.processors import (  # noqa: F401
     _is_official,
     _source_score,
 )
-from pipeline.processors.deduplicator import (  # noqa: F401
+from pipeline.processors.deduplicator import (
     _deduplicate_day_group,
 )
-from pipeline.utils.text import _title_tokens  # noqa: F401
-from pipeline.utils.similarity import _jaccard  # noqa: F401
-from pipeline.utils.dates import (  # noqa: F401
+from pipeline.utils.text import _title_tokens
+from pipeline.utils.similarity import _jaccard
+from pipeline.utils.dates import (
     _parse_date,
     _in_date_range,
     _google_news_window,
 )
-from pipeline.collectors import (  # noqa: F401
+from pipeline.collectors import (
     fetch_query,
     fetch_official_rss,
     fetch_ofac_sanctions_list,
     fetch_commodity_prices,
 )
-from pipeline.enrichers import (  # noqa: F401
+from pipeline.enrichers import (
     enrich_item,
     enrich_dataframe,
     fetch_existing_hashes,
     classify_with_llm,
 )
-from pipeline.enrichers.article_enricher import (  # noqa: F401
+from pipeline.enrichers.article_enricher import (
     _resolve_google_news_url,
     _fetch_article_text,
     _extract_numbers,
     _extract_key_takeaway,
     _domain,
 )
-from pipeline.persistence import (  # noqa: F401
+from pipeline.persistence import (
     write_csv_outputs,
     to_db_macro_rows,
 )
-from pipeline.cli import build_arg_parser, resolve_default_dates  # noqa: F401
+from pipeline.cli import build_arg_parser, resolve_default_dates
 
-# --------------------------------------------------------------------------
-# Keep the _CORRIDOR_NO_MATCH sentinel accessible
-# --------------------------------------------------------------------------
-from pipeline.config import _CORRIDOR_NO_MATCH  # noqa: F401
-
-# --------------------------------------------------------------------------
-# db_writer lazy import — preserved for any direct caller
-# --------------------------------------------------------------------------
 try:
-    import db_writer  # noqa: F401
-except ModuleNotFoundError:
-    db_writer = None  # type: ignore[assignment]
+    import pipeline.db as db_writer
+except Exception:
+    db_writer = None
 
-# --------------------------------------------------------------------------
-# main — delegates entirely to pipeline.runner
-# --------------------------------------------------------------------------
 
 def main():
-    from pipeline.cli import build_arg_parser, resolve_default_dates
-    from pipeline.runner import run
-
     parser = build_arg_parser()
     args = parser.parse_args()
     args.from_date, args.to_date = resolve_default_dates(args.from_date, args.to_date)
+    from pipeline.runner import run
     run(args)
 
 
