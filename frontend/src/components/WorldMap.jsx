@@ -36,15 +36,25 @@ const LABEL_OFFSET = {
 // ─────────────────────────────────────────────────────────────────────────────
 // India infrastructure markers — real public coordinates, static reference data
 // ─────────────────────────────────────────────────────────────────────────────
+// Real coordinates sourced from public records / MoPNG / company annual reports.
+// capacity_mmtpa used for proportional 64.5-day stock allocation in Reserve Optimizer.
+// Total mapped: 11 refineries, ~206 MMTPA ≈ 80% of India's 258.1 MMTPA installed capacity (MoPNG FY2024-25).
+// Remaining ~20% distributed across smaller refineries not individually mapped.
 const INDIA_REFINERIES = [
-  { id: 'jamnagar_reliance', name: 'Jamnagar (Reliance)',    lat: 22.4276, lng: 69.8660, type: 'refinery' },
-  { id: 'vadinar_nayara',    name: 'Vadinar (Nayara/Rosneft)', lat: 22.4344, lng: 69.7126, type: 'refinery' },
-  { id: 'kochi_bpcl',        name: 'Kochi (BPCL)',           lat: 9.9576,  lng: 76.3601, type: 'refinery' },
-  { id: 'mangalore_mrpl',    name: 'Mangalore (MRPL)',        lat: 12.9904, lng: 74.8466, type: 'refinery' },
-  { id: 'paradip_iocl',      name: 'Paradip (IOCL)',          lat: 20.2705, lng: 86.6853, type: 'refinery' },
-  { id: 'vizag_hpcl',        name: 'Visakhapatnam (HPCL)',    lat: 17.6974, lng: 83.2505, type: 'refinery' },
-  { id: 'mumbai_hpcl',       name: 'Mumbai (HPCL/BPCL)',      lat: 18.9902, lng: 72.8573, type: 'refinery' },
+  { id: 'jamnagar_reliance', name: 'Jamnagar (Reliance)',        lat: 22.4276, lng: 69.8660, type: 'refinery', capacity_mmtpa: 60.0 },
+  { id: 'vadinar_nayara',    name: 'Vadinar (Nayara/Rosneft)',   lat: 22.4344, lng: 69.7126, type: 'refinery', capacity_mmtpa: 20.0 },
+  { id: 'kochi_bpcl',        name: 'Kochi (BPCL)',               lat:  9.9576, lng: 76.3601, type: 'refinery', capacity_mmtpa: 15.5 },
+  { id: 'mangalore_mrpl',    name: 'Mangalore (MRPL)',            lat: 12.9904, lng: 74.8466, type: 'refinery', capacity_mmtpa: 15.0 },
+  { id: 'paradip_iocl',      name: 'Paradip (IOCL)',              lat: 20.2705, lng: 86.6853, type: 'refinery', capacity_mmtpa: 15.0 },
+  { id: 'vizag_hpcl',        name: 'Visakhapatnam (HPCL)',        lat: 17.6974, lng: 83.2505, type: 'refinery', capacity_mmtpa:  8.3 },
+  { id: 'mumbai_hpcl_bpcl',  name: 'Mumbai (HPCL + BPCL)',        lat: 18.9902, lng: 72.8573, type: 'refinery', capacity_mmtpa: 21.5 },
+  { id: 'panipat_iocl',      name: 'Panipat (IOCL)',              lat: 29.3909, lng: 76.9635, type: 'refinery', capacity_mmtpa: 15.0 },
+  { id: 'koyali_iocl',       name: 'Koyali/Vadodara (IOCL)',      lat: 22.2587, lng: 73.1729, type: 'refinery', capacity_mmtpa: 13.7 },
+  { id: 'bathinda_hmel',     name: 'Bathinda (HMEL)',             lat: 30.2110, lng: 74.9455, type: 'refinery', capacity_mmtpa: 11.3 },
+  { id: 'manali_cpcl',       name: 'Manali/Chennai (CPCL)',        lat: 13.1631, lng: 80.2707, type: 'refinery', capacity_mmtpa: 10.5 },
 ];
+// Note: Above capacities are from company annual reports / MoPNG Annual Report FY2024-25.
+// Rated capacity ≠ actual throughput — actual utilisation varies by refinery and quarter.
 
 const INDIA_SPR_SITES = [
   { id: 'spr_vizag',     name: 'SPR — Visakhapatnam (ISPRL)', lat: 17.6918, lng: 83.2522, type: 'spr' },
@@ -68,12 +78,12 @@ function makeLabelIcon(label, color) {
   return L.divIcon({
     html: `<div style="
       font-family: Inter, sans-serif;
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 700;
       color: ${color};
       white-space: nowrap;
-      text-shadow: 0 0 6px #000, 0 0 12px #000;
-      letter-spacing: 0.05em;
+      text-shadow: 0 0 4px #000, 0 0 8px #000, 0 0 12px #000;
+      letter-spacing: 0.06em;
       pointer-events: none;
     ">${label.toUpperCase()}</div>`,
     className: '',
@@ -120,7 +130,7 @@ function MapLegend({ showInfra }) {
   return (
     <div style={{
       position: 'absolute', bottom: 28, left: 12, zIndex: 1000,
-      background: 'rgba(10,14,26,0.88)',
+      background: 'rgba(10,14,26,0.92)',
       border: '1px solid #1f2d45',
       borderRadius: 8,
       padding: '8px 12px',
@@ -129,26 +139,29 @@ function MapLegend({ showInfra }) {
       lineHeight: 1.8,
       pointerEvents: 'none',
     }}>
-      <div style={{ fontWeight: 700, color: '#94a3b8', marginBottom: 4, letterSpacing: '0.06em', fontSize: 10 }}>
+      <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: 4, letterSpacing: '0.06em', fontSize: 10 }}>
         CORRIDOR RISK
       </div>
       {[['red', '≥ 66 — High'],['amber', '≥ 33 — Elevated'],['green', '< 33 — Nominal']].map(([lvl, txt]) => (
         <div key={lvl} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 10, height: 10, borderRadius: 2, background: LEVEL_HEX[lvl], flexShrink: 0 }} />
-          <span style={{ color: '#cbd5e1' }}>{txt}</span>
+          <span style={{ color: '#f1f5f9', fontWeight: 600 }}>{txt}</span>
         </div>
       ))}
       {showInfra && (
         <>
-          <div style={{ marginTop: 6, borderTop: '1px solid #1f2d45', paddingTop: 4, color: '#94a3b8', fontWeight: 700, fontSize: 10, letterSpacing: '0.05em' }}>
+          <div style={{ marginTop: 6, borderTop: '1px solid #1f2d45', paddingTop: 4, color: '#e2e8f0', fontWeight: 700, fontSize: 10, letterSpacing: '0.05em' }}>
             INDIA INFRASTRUCTURE
           </div>
-          {[['🏭', 'Refineries'], ['🛢️', 'SPR Sites'], ['⚓', 'Crude Ports']].map(([sym, lbl]) => (
+          {[['🏭', 'Refineries (11)'], ['🛢️', 'SPR Sites'], ['⚓', 'Crude Ports']].map(([sym, lbl]) => (
             <div key={lbl} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ fontSize: 12 }}>{sym}</span>
-              <span style={{ color: '#94a3b8' }}>{lbl}</span>
+              <span style={{ color: '#cbd5e1', fontWeight: 600 }}>{lbl}</span>
             </div>
           ))}
+          <div style={{ marginTop: 3, color: '#94a3b8', fontSize: 9, fontWeight: 500, lineHeight: 1.3 }}>
+            ~80% of 258.1 MMTPA capacity<br />Source: MoPNG FY2024-25
+          </div>
         </>
       )}
       <div style={{ marginTop: 6, borderTop: '1px solid #1f2d45', paddingTop: 4, color: '#475569', fontSize: 10 }}>
@@ -175,13 +188,18 @@ function InfraLayer({ sites, showInfra }) {
   const renderSingle = (site) => (
     <Marker key={site.id} position={[site.lat, site.lng]} icon={makeInfraIcon(site.type)}>
       <Tooltip direction="top" offset={[0, -6]}>
-        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 11 }}>
-          <strong>{site.name}</strong>
-          <div style={{ color: '#64748b', fontSize: 10 }}>
+        <div style={{ fontFamily: 'Inter, sans-serif', fontSize: 12 }}>
+          <strong style={{ color: '#f1f5f9', fontWeight: 700 }}>{site.name}</strong>
+          {site.capacity_mmtpa && (
+            <div style={{ color: '#fbbf24', fontSize: 11, fontWeight: 600, marginTop: 1 }}>
+              Capacity: {site.capacity_mmtpa} MMTPA
+            </div>
+          )}
+          <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 600, marginTop: 1 }}>
             {site.type === 'spr' ? 'Strategic Petroleum Reserve'
              : site.type === 'refinery' ? 'Oil Refinery' : 'Crude Import Port'}
           </div>
-          <div style={{ color: '#475569', fontSize: 9 }}>Real coordinates · Static reference data</div>
+          <div style={{ color: '#64748b', fontSize: 10, fontWeight: 500, marginTop: 2 }}>Real coordinates · Static reference</div>
         </div>
       </Tooltip>
     </Marker>
@@ -285,21 +303,22 @@ export default function WorldMap({ corridors = [], pipelineTs, vesselEstimate = 
       </button>
 
       <div style={{
-        position: 'absolute', top: 8, left: 12, zIndex: 1000,
-        background: 'rgba(10,14,26,0.85)', border: '1px solid #1f2d45',
+        position: 'absolute', top: 8, left: 12, zIndex: 800,
+        background: 'rgba(10,14,26,0.92)', border: '1px solid #1f2d45',
         borderRadius: 8, padding: '8px 10px', minWidth: 170,
+        backdropFilter: 'blur(6px)',
       }}>
-        <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>
+        <div style={{ fontSize: 10, color: '#e2e8f0', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>
           Vessels in transit
         </div>
-        <div style={{ fontSize: 15, fontWeight: 700, color: '#fbbf24' }}>
+        <div style={{ fontSize: 16, fontWeight: 800, color: '#fbbf24' }}>
           {vesselEstimate != null ? vesselEstimate.toFixed(1) : '—'}
         </div>
-        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+        <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 600, marginTop: 2 }}>
           Estimated, not tracked
         </div>
         {vesselNote && (
-          <div style={{ fontSize: 9, color: '#475569', marginTop: 4, lineHeight: 1.3 }}>
+          <div style={{ fontSize: 9, color: '#cbd5e1', fontWeight: 500, marginTop: 4, lineHeight: 1.3 }}>
             {vesselNote}
           </div>
         )}

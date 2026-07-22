@@ -258,7 +258,7 @@ export default function App() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1rem' }}>
               {/* World Map */}
               <Card title="Global Shipping Corridors — Live Risk" accent="#ef4444">
-                <div style={{ height: 380 }}>
+                <div style={{ height: 540 }}>
                   <WorldMap
                     corridors={corridors}
                     pipelineTs={pipelineTs}
@@ -371,23 +371,29 @@ export default function App() {
             <ProcurementEngine />
           )}
 
-          {/* ── Tab 4: Reserve Optimizer ── */}
+          {/* ── Tab 4: Reserve Optimizer (Restructured: Left 60%, Right 40%) ── */}
           {activeModule === 'reserve-optimizer' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '1rem' }}>
-              {/* Left: SPR Drawdown Calculator */}
-              <Card
-                title="SPR Drawdown Calculator"
-                accent="#8b5cf6"
-                headerRight={
-                  <span style={{ fontSize: 10, color: 'var(--text-footer)' }}>
-                    PIB · ISPRL · PPAC sources
-                  </span>
-                }
-              >
-                <SPRDrawdown bufferData={bufferData} />
-              </Card>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 6fr) minmax(0, 4fr)', gap: '1rem', alignItems: 'start' }}>
+              {/* Left column (60% width): SPR Drawdown Calculator + Commodity Prices chart below it */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <Card
+                  title="SPR Drawdown Calculator"
+                  accent="#8b5cf6"
+                  headerRight={
+                    <span style={{ fontSize: 10, color: 'var(--text-footer)' }}>
+                      PIB · ISPRL · PPAC sources
+                    </span>
+                  }
+                >
+                  <SPRDrawdown bufferData={bufferData} />
+                </Card>
 
-              {/* Right column */}
+                <Card title="Commodity Prices — Brent · WTI · USD/INR">
+                  <CommodityChart data={commodityData} />
+                </Card>
+              </div>
+
+              {/* Right column (40% width): National Buffer Stack */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 <Card
                   title="National Buffer Stack"
@@ -396,10 +402,6 @@ export default function App() {
                   }
                 >
                   <BufferStack data={bufferData} loading={bufferLoading} />
-                </Card>
-
-                <Card title="Commodity Prices — Brent · WTI · USD/INR">
-                  <CommodityChart data={commodityData} />
                 </Card>
               </div>
             </div>

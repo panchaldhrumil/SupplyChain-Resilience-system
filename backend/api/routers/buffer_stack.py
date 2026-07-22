@@ -310,6 +310,87 @@ def get_buffer_stack(request: Request):
             f"Formula: (Daily crude throughput {daily_consumption_million}M bbl × Average transit {transit_days} days) / Average cargo {avg_cargo_size / 1_000_000:.2f}M bbl."
         )
 
+    # ── Refinery stock breakdown (Item 3A + 5) ─────────────────────────────
+    # Proportional allocation: each refinery gets (capacity_mmtpa / total_mapped_mmtpa) × 64.5 days
+    # Source: refinery capacities from MoPNG Annual Report FY2024-25 / company reports.
+    # Total installed capacity: ~258.1 MMTPA (MoPNG).
+    # 11 major refineries mapped: ~206 MMTPA = ~79.8% of total.
+    REFINERY_CAPACITIES = [
+        {"name": "Jamnagar (Reliance)",        "operator": "Reliance Industries",    "capacity_mmtpa": 60.0},
+        {"name": "Mumbai (HPCL + BPCL)",        "operator": "HPCL + BPCL",            "capacity_mmtpa": 21.5},
+        {"name": "Vadinar (Nayara/Rosneft)",   "operator": "Nayara Energy",          "capacity_mmtpa": 20.0},
+        {"name": "Kochi (BPCL)",               "operator": "BPCL",                   "capacity_mmtpa": 15.5},
+        {"name": "Mangalore (MRPL)",            "operator": "MRPL (ONGC subsidiary)", "capacity_mmtpa": 15.0},
+        {"name": "Paradip (IOCL)",              "operator": "Indian Oil",             "capacity_mmtpa": 15.0},
+        {"name": "Panipat (IOCL)",              "operator": "Indian Oil",             "capacity_mmtpa": 15.0},
+        {"name": "Koyali/Vadodara (IOCL)",      "operator": "Indian Oil",             "capacity_mmtpa": 13.7},
+        {"name": "Bathinda (HMEL)",             "operator": "HPCL-Mittal Energy",     "capacity_mmtpa": 11.3},
+        {"name": "Manali/Chennai (CPCL)",        "operator": "Chennai Petro (CPCL)",   "capacity_mmtpa": 10.5},
+        {"name": "Visakhapatnam (HPCL)",        "operator": "HPCL",                   "capacity_mmtpa":  8.3},
+    ]
+    TOTAL_INSTALLED_MMTPA = 258.1   # MoPNG Annual Report FY2024-25
+    TOTAL_MAPPED_MMTPA    = sum(r["capacity_mmtpa"] for r in REFINERY_CAPACITIES)  # ~206
+    OTHERS_MMTPA          = max(TOTAL_INSTALLED_MMTPA - TOTAL_MAPPED_MMTPA, 0.0)
+    AGGREGATE_DAYS        = float(refinery_cfg.get("days_cover") or 64.5)          # PIB figure
+
+    refinery_breakdown = []
+    for r in REFINERY_CAPACITIES:
+        share_pct   = r["capacity_mmtpa"] / TOTAL_INSTALLED_MMTPA * 100.0
+        days_alloc  = round(AGGREGATE_DAYS * r["capacity_mmtpa"] / TOTAL_INSTALLED_MMTPA, 1)
+        refinery_breakdown.append({
+            "name":             r["name"],
+            "operator":         r["operator"],
+            "capacity_mmtpa":   r["capacity_mmtpa"],
+            "share_pct":        round(share_pct, 1),
+            "stock_days_est":   days_alloc,
+            "methodology":      "modelled_estimate",
+            "note":             (
+                f"Stock-days = aggregate PIB figure ({AGGREGATE_DAYS}d) × "
+                f"capacity share ({r['capacity_mmtpa']}/{TOTAL_INSTALLED_MMTPA} MMTPA = {share_pct:.1f}%). "
+                "Modelled estimate — real per-refinery stock is not published."
+            ),
+        })
+    # "Others" row — remaining smaller refineries not individually mapped
+    others_share  = OTHERS_MMTPA / TOTAL_INSTALLED_MMTPA * 100.0
+    others_days   = round(AGGREGATE_DAYS * OTHERS_MMTPA / TOTAL_INSTALLED_MMTPA, 1)
+    refinery_breakdown.append({
+        "name":             "Others (smaller refineries)",
+        "operator":         "Various",
+        "capacity_mmtpa":   round(OTHERS_MMTPA, 1),
+        "share_pct":        round(others_share, 1),
+        "stock_days_est":   others_days,
+        "methodology":      "modelled_estimate",
+        "note":             (
+            f"Aggregate for refineries not individually mapped (~{OTHERS_MMTPA:.1f} MMTPA combined). "
+            "Includes Numaligarh, Haldia, Tatipaka, Bongaigaon and others."
+        ),
+    })
+    # Sort by capacity descending so largest comes first in UI
+    refinery_breakdown.sort(key=lambda x: x["capacity_mmtpa"], reverse=True)
+
+    # ── SPR breakdown (Item 3B) ─────────────────────────────────────────────
+    # National average fill: 64% (PIB + Rajya Sabha RTI, verified 2026-03-23)
+    spr_fill_pct     = float(spr_cfg.get("current_fill_pct", 64))
+    spr_full_days    = float(spr_cfg.get("days_cover_at_full_capacity", 9.5))
+    spr_breakdown = []
+    for site in spr_cfg.get("sites", []):
+        site_cap_mmt  = float(site.get("capacity_mmt", 0))
+        site_fill_mmt = round(site_cap_mmt * spr_fill_pct / 100, 3)
+        site_days     = round(spr_full_days * (site_cap_mmt / float(spr_cfg.get("total_capacity_mmt", 5.33))) * spr_fill_pct / 100, 2)
+        spr_breakdown.append({
+            "site":              site["name"],
+            "capacity_mmt":      site_cap_mmt,
+            "fill_pct_national": spr_fill_pct,
+            "est_fill_mmt":      site_fill_mmt,
+            "est_days_cover":    site_days,
+            "methodology":       "modelled_estimate",
+            "note": (
+                f"64% fill is the national average (PIB/RTI 2026-03). "
+                f"Per-site breakdown is estimated by capacity share. "
+                f"ISPRL does not publish site-level fill publicly."
+            ),
+        })
+
     return {
         "layers":          layers,
         "total_days_cover": round(total_days, 1),
@@ -324,7 +405,32 @@ def get_buffer_stack(request: Request):
             "average_cargo_size_bbl": avg_cargo_size,
             "note": vessel_note,
             "display_badge": "Estimated — Not Tracked"
-        }
+        },
+        "refinery_breakdown": {
+            "refineries":              refinery_breakdown,
+            "aggregate_stock_days":    AGGREGATE_DAYS,
+            "total_installed_mmtpa":   TOTAL_INSTALLED_MMTPA,
+            "total_mapped_mmtpa":      round(TOTAL_MAPPED_MMTPA, 1),
+            "coverage_pct":            round(TOTAL_MAPPED_MMTPA / TOTAL_INSTALLED_MMTPA * 100, 1),
+            "source":                  "MoPNG Annual Report FY2024-25; company annual reports",
+            "aggregate_source":        "PIB Press Release PRID=1694712 (March 2026)",
+            "methodology_note":        (
+                "Per-refinery stock-days are modelled estimates derived by applying each refinery's "
+                "installed capacity share to the published 64.5-day aggregate. "
+                "Actual per-refinery inventories are not publicly available."
+            ),
+        },
+        "spr_breakdown": {
+            "sites":            spr_breakdown,
+            "national_fill_pct": spr_fill_pct,
+            "total_capacity_mmt": spr_cfg.get("total_capacity_mmt"),
+            "source":           spr_cfg.get("source", ""),
+            "last_verified":    spr_cfg.get("last_verified", ""),
+            "methodology_note": (
+                "Per-site fill is estimated from the 64% national average fill (PIB+RTI 2026-03). "
+                "ISPRL does not publish site-level crude stock data publicly."
+            ),
+        },
     }
 
 

@@ -5,22 +5,40 @@ from datetime import datetime, timezone
 from io import StringIO
 from pipeline.settings import USER_AGENT
 from pipeline.config import _OFAC_SDN_URL, _OFAC_SDN_COLS
+try:
+    from pipeline.config import _OFAC_SDN_URL_ALT
+except ImportError:
+    _OFAC_SDN_URL_ALT = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 
 
 def fetch_ofac_sanctions_list(output_dir, db_conn=None):
     out_path = os.path.join(output_dir, "ofac_sanctions.csv")
     print(f"\n[OFAC] Downloading SDN list from {_OFAC_SDN_URL} ...")
 
-    try:
-        resp = requests.get(
-            _OFAC_SDN_URL,
-            headers={"User-Agent": USER_AGENT},
-            timeout=30,
-        )
-        if resp.status_code != 200:
-            print(f"  [OFAC] HTTP {resp.status_code} — skipped.")
-            return 0, 0
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "*/*",
+    }
+    
+    resp = None
+    urls_to_try = [_OFAC_SDN_URL, _OFAC_SDN_URL_ALT]
+    
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=(5, 12))
+            if r.status_code == 200:
+                resp = r
+                break
+            else:
+                print(f"  [OFAC] {url} returned HTTP {r.status_code}")
+        except Exception as err:
+            print(f"  [OFAC] {url} connection/timeout: {err}")
 
+    if not resp or resp.status_code != 200:
+        print("  [OFAC] All OFAC download attempts failed or timed out — skipping OFAC refresh.")
+        return 0, 0
+
+    try:
         raw_text = resp.content.decode("utf-8", errors="replace")
         df_new = pd.read_csv(
             StringIO(raw_text),

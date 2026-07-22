@@ -21,6 +21,26 @@ export default function ProcurementEngine() {
   const [data, setData]                 = useState(null);
   const [loading, setLoading]           = useState(false);
 
+  // Status message cycling during fetch
+  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0);
+  const LOADING_MESSAGES = [
+    'Ranking alternative crude supply sources…',
+    'Evaluating transit times & chokepoint safety…',
+    'Calculating weighted resilience scores…',
+    'Generating Gemini LLM procurement justifications…',
+  ];
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingMsgIdx(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setLoadingMsgIdx(idx => (idx + 1) % LOADING_MESSAGES.length);
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [loading]);
+
   useEffect(() => {
     const controller = new AbortController();
     const fetchRecommend = async () => {
@@ -45,9 +65,12 @@ export default function ProcurementEngine() {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: '1.5rem' }}>
       {/* Inputs Panel */}
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-          Disruption Context
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16, opacity: loading ? 0.75 : 1.0, transition: 'opacity 0.2s' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Disruption Context</span>
+          {loading && (
+            <span style={{ fontSize: 10, color: '#3b82f6', fontWeight: 600 }}>🔒 Controls Locked</span>
+          )}
         </div>
 
         {/* Disrupted Supplier / Corridor */}
@@ -57,11 +80,12 @@ export default function ProcurementEngine() {
           </label>
           <select
             value={disruptedId}
+            disabled={loading}
             onChange={e => setDisruptedId(e.target.value)}
             style={{
               width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border-input)',
               color: 'var(--text-primary)', borderRadius: 8, padding: '10px 12px', fontSize: 13,
-              cursor: 'pointer',
+              cursor: loading ? 'not-allowed' : 'pointer',
             }}
           >
             <optgroup label="Primary Shipping Corridors">
@@ -92,8 +116,9 @@ export default function ProcurementEngine() {
           <input
             type="range" min="5" max="100" step="5"
             value={volumePct}
+            disabled={loading}
             onChange={e => setVolumePct(parseInt(e.target.value))}
-            style={{ width: '100%', accentColor: '#3b82f6', cursor: 'pointer' }}
+            style={{ width: '100%', accentColor: '#3b82f6', cursor: loading ? 'not-allowed' : 'pointer' }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
             <span>5% (OMC level)</span>
@@ -109,8 +134,9 @@ export default function ProcurementEngine() {
           <input
             type="range" min="5" max="45" step="1"
             value={maxTransit}
+            disabled={loading}
             onChange={e => setMaxTransit(parseInt(e.target.value))}
-            style={{ width: '100%', accentColor: '#3b82f6', cursor: 'pointer' }}
+            style={{ width: '100%', accentColor: '#3b82f6', cursor: loading ? 'not-allowed' : 'pointer' }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>
             <span>5 Days</span>
@@ -119,7 +145,7 @@ export default function ProcurementEngine() {
         </div>
 
         {/* Corridor disruption indicator */}
-        {data?.disrupted_corridor_applied && (
+        {data?.disrupted_corridor_applied && !loading && (
           <div style={{
             padding: '8px 12px', borderRadius: 6,
             background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
@@ -133,14 +159,47 @@ export default function ProcurementEngine() {
 
       {/* Recommendations Panel */}
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
-          Ranked Alternative Crude Sources
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', borderBottom: '1px solid var(--border)', paddingBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Ranked Alternative Crude Sources</span>
+          {loading && (
+            <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', border: '2px solid #3b82f6', borderTopColor: 'transparent', animation: 'spin 0.8s linear infinite', display: 'inline-block' }} />
+              {LOADING_MESSAGES[loadingMsgIdx]}
+            </span>
+          )}
         </div>
 
-        {loading && !data ? (
-          <div style={{ height: 250, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
-            <div style={{ width: 20, height: 20, borderRadius: '50%', border: '2px solid var(--border)', borderTopColor: '#3b82f6', animation: 'spin 0.8s linear infinite', marginRight: 8 }} />
-            Evaluating alternative supply chains...
+        {loading ? (
+          /* Skeleton loading card placeholders */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[1, 2, 3, 4].map(idx => (
+              <div
+                key={idx}
+                style={{
+                  padding: '16px 14px', borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-code)',
+                  display: 'grid', gridTemplateColumns: '50px 1.5fr 1fr 1fr 100px',
+                  alignItems: 'center', gap: 16, opacity: 0.6,
+                  animation: 'pulse 1.5s ease-in-out infinite',
+                }}
+              >
+                <div style={{ height: 24, width: 24, borderRadius: '50%', background: 'var(--border)', margin: '0 auto' }} />
+                <div>
+                  <div style={{ height: 14, width: '70%', background: 'var(--border)', borderRadius: 4, marginBottom: 6 }} />
+                  <div style={{ height: 10, width: '40%', background: 'var(--border)', borderRadius: 3 }} />
+                </div>
+                <div>
+                  <div style={{ height: 10, width: '50%', background: 'var(--border)', borderRadius: 3, marginBottom: 6 }} />
+                  <div style={{ height: 12, width: '60%', background: 'var(--border)', borderRadius: 4 }} />
+                </div>
+                <div>
+                  <div style={{ height: 10, width: '50%', background: 'var(--border)', borderRadius: 3, marginBottom: 6 }} />
+                  <div style={{ height: 12, width: '60%', background: 'var(--border)', borderRadius: 4 }} />
+                </div>
+                <div style={{ height: 32, width: '80%', background: 'var(--border)', borderRadius: 6, margin: '0 auto' }} />
+              </div>
+            ))}
           </div>
         ) : data?.recommendations?.length ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

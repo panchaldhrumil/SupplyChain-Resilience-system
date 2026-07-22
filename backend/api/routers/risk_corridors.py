@@ -93,7 +93,8 @@ def _trend_from_history(history_rows: list, current_score: float) -> str:
             prev_record = item
             break
     if prev_record is None:
-        prev_record = history_rows[-2]
+        # Use earliest baseline record in history instead of 5-minute-ago record
+        prev_record = history_rows[0]
     prev_score = float(prev_record.get("score", current_score))
     delta = current_score - prev_score
     if delta >= 2.0:

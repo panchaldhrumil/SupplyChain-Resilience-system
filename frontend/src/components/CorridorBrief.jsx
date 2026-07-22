@@ -144,33 +144,44 @@ export default function CorridorBrief() {
       {/* ── Content ── */}
       {!loading && !error && (
         <>
-          {/* Brief text */}
+          {/* Brief text box */}
           <div style={{
-            background: insufficient ? 'var(--bg-overlay)' : 'rgba(59,130,246,0.07)',
-            border: `1px solid ${insufficient ? 'var(--border)' : 'rgba(59,130,246,0.2)'}`,
-            borderRadius: 8, padding: '12px 14px', marginBottom: 10,
-            lineHeight: 1.7, fontSize: 13,
-            color: insufficient ? 'var(--text-muted)' : 'var(--text-primary)',
-            fontStyle: insufficient ? 'italic' : 'normal',
+            background: insufficient ? 'var(--bg-overlay)' : 'rgba(59,130,246,0.06)',
+            border: `1px solid ${insufficient ? 'var(--border)' : 'rgba(59,130,246,0.25)'}`,
+            borderRadius: 8, padding: '14px 16px', marginBottom: 14,
           }}>
-            {brief || 'No brief available.'}
+            <div style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
+              color: insufficient ? 'var(--text-muted)' : '#3b82f6',
+              textTransform: 'uppercase', marginBottom: 6,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span>📝</span> SYNTHESIZED NARRATIVE BRIEF
+            </div>
+            <div style={{
+              lineHeight: 1.6, fontSize: 14, fontWeight: 400,
+              color: insufficient ? 'var(--text-muted)' : 'var(--text-primary)',
+              fontStyle: insufficient ? 'italic' : 'normal',
+            }}>
+              {brief || 'No brief available.'}
+            </div>
           </div>
 
           {/* LLM status + key pool indicator */}
-          <div style={{ marginBottom: 10 }}>
+          <div style={{ marginBottom: 16 }}>
             <StatusBadge status={llmStatus} keysInPool={keysInPool} />
             {articles.length > 0 && (
               <span style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginTop: 4 }}>
-                {articles.length} source article{articles.length !== 1 ? 's' : ''} used
+                {articles.length} source article{articles.length !== 1 ? 's' : ''} retrieved & synthesized
               </span>
             )}
           </div>
 
-          {/* Source articles */}
+          {/* Source articles — visually separated section */}
           {articles.length > 0 && (
-            <div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, marginBottom: 6, letterSpacing: '0.05em' }}>
-                SOURCES RETRIEVED
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, marginBottom: 8, letterSpacing: '0.06em' }}>
+                SOURCES RETRIEVED ({articles.length})
               </div>
               {articles.map((art, i) => (
                 <div key={i} style={{

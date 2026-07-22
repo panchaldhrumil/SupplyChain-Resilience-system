@@ -9,10 +9,9 @@ import pandas as pd
 
 from api.routers.buffer_stack import calculate_buffer_coverage_logic
 from api.db import query_df
+from pipeline.gemini_pool import pool as _gemini_pool  # shared round-robin key pool
 
 router = APIRouter()
-
-_GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 
 def _read_config(path: Path) -> dict:
@@ -29,9 +28,15 @@ def generate_justification(
     rec: dict,
     rank: int,
     disrupted_id: str,
-    api_key: str,
+    api_key: str = "",
 ) -> Optional[str]:
-    if not api_key:
+    """
+    Generate a one-sentence procurement justification for a single supplier.
+    Uses the shared Gemini key pool with rotation on 429.
+    Call generate_bulk_justifications() to batch multiple in one API call.
+    """
+    key = api_key or _gemini_pool.get_next_key()
+    if not key:
         return None
 
     try:
@@ -57,15 +62,99 @@ def generate_justification(
         f"Output ONLY the single sentence, nothing else."
     )
 
+    for _attempt in range(len(_gemini_pool) or 1):
+        try:
+            client = genai.Client(api_key=key)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            return response.text.strip()
+        except Exception as e:
+            err_str = str(e).lower()
+            if any(x in err_str for x in ("429", "quota", "exhausted", "limit")):
+                key = _gemini_pool.rotate()
+                if not key:
+                    break
+            else:
+                break
+    return None
+
+
+def generate_bulk_justifications(
+    candidates: list[dict],
+    disrupted_id: str,
+) -> list[Optional[str]]:
+    """
+    Batch ALL N candidates into a SINGLE Gemini API call (one prompt → JSON array).
+    Returns a list of justification strings in the same order as `candidates`.
+    Falls back to None for each entry if the API call fails.
+
+    This replaces N separate generate_justification() calls with 1 call,
+    reducing free-tier quota consumption by up to N×.
+    """
+    key = _gemini_pool.get_next_key()
+    if not key:
+        return [None] * len(candidates)
+
     try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
+        from google import genai
+    except ImportError:
+        return [None] * len(candidates)
+
+    # Build a compact batch prompt
+    entries = []
+    for i, rec in enumerate(candidates):
+        entries.append(
+            f"Rank #{i+1} — {rec['name']}:\n"
+            f"  transit_days={rec.get('transit_days','N/A')}, transit_score={rec.get('transit_score','N/A')}/100\n"
+            f"  safety_score={rec.get('safety_score','N/A')}/100, chokepoint_exposure={rec.get('chokepoint_exposure','N/A')}%\n"
+            f"  reliability_score={rec.get('reliability_score','N/A')}/100, final_score={rec.get('final_score','N/A')}/100\n"
+            f"  crude_grade={rec.get('crude_grade','N/A')}, is_sanctioned={rec.get('is_sanctioned',False)}"
         )
-        return response.text.strip()
-    except Exception:
-        return None
+
+    prompt = (
+        f"You are a procurement analyst writing briefs for India's energy ministry.\n"
+        f"A disruption at '{disrupted_id}' requires alternative crude suppliers.\n"
+        f"For each ranked supplier below, write exactly ONE sentence (max 30 words) explaining\n"
+        f"why they are ranked there. Base reasoning ONLY on the computed scores shown.\n"
+        f"Do NOT add external geopolitical facts not derivable from these numbers.\n\n"
+        f"Suppliers:\n" + "\n\n".join(entries) + "\n\n"
+        f"Return a JSON array of {len(candidates)} strings, one per supplier in order.\n"
+        f"Example: [\"sentence for rank 1\", \"sentence for rank 2\", ...]\n"
+        f"Output ONLY the JSON array, nothing else."
+    )
+
+    for _attempt in range(len(_gemini_pool) or 1):
+        try:
+            client = genai.Client(api_key=key)
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            raw = response.text.strip()
+            # Strip markdown fences if present
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            parsed = json.loads(raw.strip())
+            if isinstance(parsed, list):
+                # Pad or trim to match candidate count
+                result = [str(x) if x else None for x in parsed]
+                while len(result) < len(candidates):
+                    result.append(None)
+                return result[:len(candidates)]
+        except Exception as e:
+            err_str = str(e).lower()
+            if any(x in err_str for x in ("429", "quota", "exhausted", "limit")):
+                key = _gemini_pool.rotate()
+                if not key:
+                    break
+            else:
+                break
+
+    return [None] * len(candidates)
 
 
 def rank_alternatives_internal(
@@ -264,9 +353,12 @@ def rank_alternatives_internal(
 
     ranked_results.sort(key=lambda x: x["final_score"], reverse=True)
 
-    if llm_justify and llm_api_key:
-        for rank_idx, rec in enumerate(ranked_results[:3], start=1):
-            rec["justification"] = generate_justification(rec, rank_idx, disrupted_id, llm_api_key)
+    if llm_justify and len(_gemini_pool) > 0:
+        # Batch all top candidates into a SINGLE Gemini call — saves N-1 quota units
+        top_n = ranked_results[:3]
+        justifications = generate_bulk_justifications(top_n, disrupted_id)
+        for rec, just in zip(top_n, justifications):
+            rec["justification"] = just
 
     penalty_pct = round((1.0 - sanctions_multiplier) * 100)
     return {
@@ -483,8 +575,6 @@ def recommend_procurement(
     config_dir: Path = request.app.state.config_dir
     csv_dir: Path = request.app.state.csv_dir
 
-    api_key = _GEMINI_API_KEY if llm_justify else ""
-
     return rank_alternatives_internal(
         config_dir=config_dir,
         csv_dir=csv_dir,
@@ -492,7 +582,7 @@ def recommend_procurement(
         required_volume_pct=required_volume_pct,
         max_transit_days=max_transit_days,
         llm_justify=llm_justify,
-        llm_api_key=api_key,
+        llm_api_key="",  # pool is used directly inside rank_alternatives_internal
     )
 
 

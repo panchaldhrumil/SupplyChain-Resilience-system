@@ -1,64 +1,17 @@
-import os
 import json
 import math
-import itertools
 import logging
-import threading
-from datetime import datetime, timezone, timedelta, date as date_cls
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 import pandas as pd
 from fastapi import APIRouter, Query, Request
 
 from api.db import query_df
 from pipeline.qdrant_store import search_by_corridor
+from pipeline.gemini_pool import pool as _dynamic_pool  # shared round-robin pool
 
 router = APIRouter()
 log = logging.getLogger("corridor_brief")
-
-
-class DynamicKeyPool:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._last_keys = []
-        self._cycle = None
-
-    def _get_clean_keys(self) -> list[str]:
-        from dotenv import load_dotenv
-        load_dotenv()
-
-        raw_keys = [
-            os.environ.get("GEMINI_API_KEY_1", ""),
-            os.environ.get("GEMINI_API_KEY_2", ""),
-            os.environ.get("GEMINI_API_KEY_3", ""),
-            os.environ.get("GEMINI_API_KEY_4", ""),
-            os.environ.get("GEMINI_API_KEY", ""),
-        ]
-        return list(
-            dict.fromkeys(
-                k.strip() for k in raw_keys
-                if k and not k.strip().startswith("your_gemini_api_key")
-            )
-        )
-
-    def get_next_key(self) -> str:
-        keys = self._get_clean_keys()
-        with self._lock:
-            if not keys:
-                self._last_keys = []
-                self._cycle = None
-                return ""
-
-            if keys != self._last_keys or self._cycle is None:
-                self._last_keys = keys
-                self._cycle = itertools.cycle(keys)
-
-            return next(self._cycle)
-
-    def get_all_keys(self) -> list[str]:
-        return self._get_clean_keys()
-
-
-_dynamic_pool = DynamicKeyPool()
 
 
 def _load_events_db(corridor: str, lookback_hours: int = 48) -> pd.DataFrame:
@@ -108,19 +61,21 @@ def _build_prompt(corridor: str, articles: list) -> str:
             f"  Snippet: {art['snippet']}\n\n"
         )
     return (
-        "You are an energy security analyst for India's shipping lanes.\n"
-        f"Synthesize a concise 2-3 sentence intelligence brief summarizing current conditions for the '{corridor}' shipping corridor.\n"
+        "You are a senior energy security analyst writing an executive intelligence briefing for India's Ministry of Petroleum.\n"
+        f"Synthesize a fluid, cohesive 2-3 sentence analyst narrative summarizing security and shipping developments for the '{corridor}' corridor.\n"
         "Rules:\n"
-        "- Base your summary ONLY on the provided articles. Do NOT invent or assume any facts.\n"
-        "- Do NOT add fake ship coordinates or fake numbers.\n"
-        "- Explicitly cite which sources you drew from by name (e.g. 'Reuters reports', 'according to The Economic Times').\n"
-        "- Keep it under 60 words total.\n\n"
+        "- Base your narrative STRICTLY on the provided articles below. Do NOT invent, assume, or fabricate any facts, numbers, or coordinates.\n"
+        "- Write connected, professional prose that reads like a human analyst's summary explaining what is happening and why it matters for India.\n"
+        "- Seamlessly weave source attributions into the natural flow of the prose (e.g. 'According to reporting by Reuters...', 'as noted by The Economic Times...').\n"
+        "- Do NOT format as bullet points, numbered lists, or concatenated 'According to X: headline' fragments.\n"
+        "- Keep the total summary under 75 words.\n\n"
         f"Articles:\n{articles_text}\n"
-        "Output ONLY the brief text, nothing else."
+        "Output ONLY the clean synthesized narrative brief, nothing else."
     )
 
 
 def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
+    """Synthesize a corridor intelligence brief using Gemini with round-robin key rotation."""
     active_keys = _dynamic_pool.get_all_keys()
     if not active_keys:
         return _auto_compile(articles), "fallback_no_key"
@@ -134,15 +89,15 @@ def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
     tried_keys: set[str] = set()
 
     models_to_try = [
-        'gemini-2.5-flash',
         'gemini-2.0-flash',
         'gemini-1.5-flash',
     ]
 
-    for _ in range(len(active_keys)):
+    # Try each key in the pool; rotate immediately on 429
+    for _attempt in range(max(len(active_keys), 1)):
         api_key = _dynamic_pool.get_next_key()
         if not api_key or api_key in tried_keys:
-            continue
+            break
         tried_keys.add(api_key)
 
         for model_name in models_to_try:
@@ -152,12 +107,19 @@ def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
                     model=model_name,
                     contents=prompt,
                 )
+                log.info("[corridor_brief] brief generated via %s (key slot %d/%d)",
+                         model_name, len(tried_keys), len(active_keys))
                 return response.text.strip(), "ok"
 
-            except Exception:
-                continue
-
-        continue
+            except Exception as e:
+                err_str = str(e).lower()
+                if any(x in err_str for x in ("429", "quota", "exhausted", "limit")):
+                    log.warning("[corridor_brief] 429 on key slot %d — rotating.", len(tried_keys))
+                    api_key = _dynamic_pool.rotate()
+                    tried_keys.add(api_key)
+                    break  # try next key
+                log.debug("[corridor_brief] %s failed: %s", model_name, e)
+                continue  # try next model
 
     return _auto_compile(articles), "fallback_all_keys_failed"
 
@@ -165,12 +127,18 @@ def synthesize_brief(corridor: str, articles: list) -> tuple[str, str]:
 def _auto_compile(articles: list) -> str:
     if not articles:
         return "No recent articles available for this corridor."
-    lines = []
+    takeaways = []
+    sources = []
     for a in articles[:3]:
-        takeaway = a["key_takeaway"] or a["title"]
-        source   = a["source"] or "Unknown source"
-        lines.append(f"• According to {source}: {takeaway}")
-    return "(Auto-compiled) Recent updates:\n" + "\n".join(lines)
+        t = a.get("key_takeaway") or a.get("title")
+        s = a.get("source")
+        if t and t not in takeaways:
+            takeaways.append(t)
+        if s and s not in sources:
+            sources.append(s)
+    src_str = ", ".join(sources) if sources else "recent reporting"
+    prose = " ".join(takeaways)
+    return f"Recent reporting from {src_str} indicates active developments across the shipping lane: {prose}"
 
 
 @router.get("/corridor-brief")
@@ -179,7 +147,7 @@ def get_corridor_brief(
     corridor: str = Query(..., description="Corridor ID: hormuz / red_sea / suez / cape_of_good_hope / russia_route / malacca"),
 ):
     active_keys = _dynamic_pool.get_all_keys()
-    primary_key = active_keys[0] if active_keys else ""
+    primary_key = active_keys[0] if active_keys else ""  # first key for Qdrant embedding
 
     qdrant_results = search_by_corridor(
         corridor=corridor,

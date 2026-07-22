@@ -766,7 +766,8 @@ OFFICIAL_RSS_FEEDS = [
 # --------------------------------------------------------------------------
 # OFAC
 # --------------------------------------------------------------------------
-_OFAC_SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
+_OFAC_SDN_URL = "https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/SDN.CSV"
+_OFAC_SDN_URL_ALT = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 _OFAC_SDN_COLS = [
     "ent_num", "sdn_name", "sdn_type", "program", "title",
     "call_sign", "vess_type", "tonnage", "grt", "vess_flag",

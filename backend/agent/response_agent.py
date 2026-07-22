@@ -335,8 +335,9 @@ def run_cycle(csv_dir: Optional[Path] = None, config_dir: Optional[Path] = None)
             log.info("  [%s] affected suppliers: %s | gap_pct: %.1f%%",
                      corridor, affected_suppliers, supply_gap_pct)
 
-            t_scenario = datetime.now(timezone.utc)
+            t_scenario_start = datetime.now(timezone.utc)
             coverage = None
+            coverage_note = None
             if supply_gap_pct > 0:
                 try:
                     coverage = calculate_buffer_coverage_logic(
@@ -344,6 +345,12 @@ def run_cycle(csv_dir: Optional[Path] = None, config_dir: Optional[Path] = None)
                     )
                 except Exception as e:
                     log.warning("  Buffer coverage failed: %s", e)
+                    coverage_note = f"Unable to compute — {e}"
+            else:
+                if corridor == "india_domestic":
+                    coverage_note = "Domestic pricing risk — N/A (no shipping import share)"
+                else:
+                    coverage_note = "No import share mapped for this corridor"
 
             coverage_days = None
             buffer_status = "unknown"
@@ -353,17 +360,22 @@ def run_cycle(csv_dir: Optional[Path] = None, config_dir: Optional[Path] = None)
 
             t_scenario_done = datetime.now(timezone.utc)
 
+            t_procurement_start = datetime.now(timezone.utc)
             ranking = _rank_procurement(
                 corridor, affected_suppliers,
                 import_mix, assumptions, current_scores
             )
             top = ranking[0] if ranking else {}
+            t_procurement_done = datetime.now(timezone.utc)
 
-            t_recommendation = datetime.now(timezone.utc)
-            latency_ms = int((t_recommendation - t_signal).total_seconds() * 1000)
+            # Sub-step latency calculation
+            sig_to_scen_ms  = int((t_scenario_done - t_act_start).total_seconds() * 1000)
+            scen_to_proc_ms = int((t_procurement_done - t_scenario_start).total_seconds() * 1000)
+            proc_to_llm_ms  = 0  # 0ms if LLM justification skipped; non-zero if Gemini called
+            latency_ms      = int((t_procurement_done - t_signal).total_seconds() * 1000)
 
-            log.info("  [%s] top recommendation: %s (score %.1f) | latency: %dms",
-                     corridor, top.get("name", "n/a"), top.get("final_score", 0), latency_ms)
+            log.info("  [%s] top recommendation: %s (score %.1f) | latency: %dms (sig->scen: %dms, scen->proc: %dms)",
+                     corridor, top.get("name", "n/a"), top.get("final_score", 0), latency_ms, sig_to_scen_ms, scen_to_proc_ms)
 
             _append_alert({
                 "cycle_id":                    cycle_id,
@@ -374,10 +386,14 @@ def run_cycle(csv_dir: Optional[Path] = None, config_dir: Optional[Path] = None)
                 "threshold":                   AGENT_THRESHOLD,
                 "signal_detected_at":          t_signal.isoformat(),
                 "scenario_computed_at":        t_scenario_done.isoformat(),
-                "recommendation_generated_at": t_recommendation.isoformat(),
+                "recommendation_generated_at": t_procurement_done.isoformat(),
                 "latency_ms":                  latency_ms,
+                "signal_to_scenario_ms":       sig_to_scen_ms,
+                "scenario_to_procurement_ms":  scen_to_proc_ms,
+                "procurement_to_llm_ms":       proc_to_llm_ms,
                 "supply_gap_pct":              supply_gap_pct,
                 "coverage_days":               coverage_days,
+                "coverage_note":               coverage_note,
                 "buffer_status":               buffer_status,
                 "top_recommendation":          top.get("name", ""),
                 "top_score":                   top.get("final_score", ""),

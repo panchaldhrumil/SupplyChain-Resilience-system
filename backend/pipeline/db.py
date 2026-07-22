@@ -164,113 +164,129 @@ def _safe_float(v, default=None):
 def upsert_macro_events(conn, rows):
     if not rows:
         return 0, 0
-    inserted = skipped = 0
-    with conn.cursor() as cur:
-        for row in rows:
-            h = compute_content_hash(row.get("title", ""))
-            try:
-                cur.execute("""
-                    INSERT INTO macro_events (
-                        date, title, source, link, category,
-                        affected_sectors, affected_companies,
-                        buffer_layer, corridor, severity,
-                        extracted_numbers, key_takeaway,
-                        article_text_snippet, fetch_status, content_hash
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (content_hash) DO NOTHING
-                """, (
-                    str(row.get("event_date", ""))[:10] or None,
-                    str(row.get("title", "")),
-                    str(row.get("source", "")),
-                    str(row.get("link", "")),
-                    str(row.get("category", "")),
-                    str(row.get("affected_sectors", "")),
-                    str(row.get("affected_companies", "")),
-                    str(row.get("buffer_layer", "none") or "none"),
-                    str(row.get("corridor", "none") or "none"),
-                    _safe_int(row.get("severity"), 0),
-                    str(row.get("extracted_numbers", "")),
-                    str(row.get("key_takeaway", "")),
-                    str(row.get("article_text_snippet", "")),
-                    str(row.get("fetch_status", "")),
-                    h,
-                ))
-                if cur.rowcount > 0:
-                    inserted += 1
-                else:
-                    skipped += 1
-            except Exception as e:
-                print(f"[DB] upsert_macro_events row failed: {e}")
-    return inserted, skipped
+    from psycopg2.extras import execute_values
+    tuples = []
+    for row in rows:
+        h = compute_content_hash(row.get("title", ""))
+        tuples.append((
+            str(row.get("event_date", ""))[:10] or None,
+            str(row.get("title", "")),
+            str(row.get("source", "")),
+            str(row.get("link", "")),
+            str(row.get("category", "")),
+            str(row.get("affected_sectors", "")),
+            str(row.get("affected_companies", "")),
+            str(row.get("buffer_layer", "none") or "none"),
+            str(row.get("corridor", "none") or "none"),
+            _safe_int(row.get("severity"), 0),
+            str(row.get("extracted_numbers", "")),
+            str(row.get("key_takeaway", "")),
+            str(row.get("article_text_snippet", "")),
+            str(row.get("fetch_status", "")),
+            h,
+        ))
+
+    query = """
+        INSERT INTO macro_events (
+            date, title, source, link, category,
+            affected_sectors, affected_companies,
+            buffer_layer, corridor, severity,
+            extracted_numbers, key_takeaway,
+            article_text_snippet, fetch_status, content_hash
+        ) VALUES %s
+        ON CONFLICT (content_hash) DO NOTHING
+    """
+    try:
+        with conn.cursor() as cur:
+            execute_values(cur, query, tuples, page_size=500)
+        return len(tuples), 0
+    except Exception as e:
+        print(f"[DB] upsert_macro_events batch failed: {e}")
+        return 0, len(tuples)
 
 
 def upsert_commodity_prices(conn, rows):
     if not rows:
         return 0
-    count = 0
-    with conn.cursor() as cur:
-        for row in rows:
-            try:
-                cur.execute("""
-                    INSERT INTO commodity_prices (date, ticker, label, open, high, low, close, volume)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (date, ticker) DO NOTHING
-                """, (
-                    str(row.get("date", ""))[:10] or None,
-                    str(row.get("ticker", "")),
-                    str(row.get("label", "")),
-                    _safe_float(row.get("open")),
-                    _safe_float(row.get("high")),
-                    _safe_float(row.get("low")),
-                    _safe_float(row.get("close")),
-                    _safe_int(row.get("volume"), 0),
-                ))
-                if cur.rowcount > 0:
-                    count += 1
-            except Exception as e:
-                print(f"[DB] upsert_commodity_prices row failed: {e}")
-    return count
+    from psycopg2.extras import execute_values
+    tuples = []
+    for row in rows:
+        tuples.append((
+            str(row.get("date", ""))[:10] or None,
+            str(row.get("ticker", "")),
+            str(row.get("label", "")),
+            _safe_float(row.get("open")),
+            _safe_float(row.get("high")),
+            _safe_float(row.get("low")),
+            _safe_float(row.get("close")),
+            _safe_int(row.get("volume"), 0),
+        ))
+
+    query = """
+        INSERT INTO commodity_prices (date, ticker, label, open, high, low, close, volume)
+        VALUES %s
+        ON CONFLICT (date, ticker) DO NOTHING
+    """
+    try:
+        with conn.cursor() as cur:
+            execute_values(cur, query, tuples, page_size=500)
+        return len(tuples)
+    except Exception as e:
+        print(f"[DB] upsert_commodity_prices batch failed: {e}")
+        return 0
 
 
 def upsert_sanctions(conn, rows):
     if not rows:
         return 0
-    count = 0
-    with conn.cursor() as cur:
-        for row in rows:
-            ent = str(row.get("ent_num", "")).strip()
-            if not ent:
-                continue
-            try:
-                is_new = str(row.get("new_since_last_run", "False")).strip().lower() in ("true", "1", "yes")
-                cur.execute("""
-                    INSERT INTO sanctions (
-                        ent_num, sdn_name, sdn_type, program, title,
-                        call_sign, vess_type, tonnage, grt, vess_flag,
-                        vess_owner, remarks, new_since_last_run
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (ent_num) DO UPDATE SET
-                        new_since_last_run = EXCLUDED.new_since_last_run,
-                        fetched_at = NOW()
-                """, (
-                    ent,
-                    str(row.get("sdn_name", "")),
-                    str(row.get("sdn_type", "")),
-                    str(row.get("program", "")),
-                    str(row.get("title", "")),
-                    str(row.get("call_sign", "")),
-                    str(row.get("vess_type", "")),
-                    str(row.get("tonnage", "")),
-                    str(row.get("grt", "")),
-                    str(row.get("vess_flag", "")),
-                    str(row.get("vess_owner", "")),
-                    str(row.get("remarks", "")),
-                    is_new,
-                ))
-                count += 1
-            except Exception as e:
-                print(f"[DB] upsert_sanctions row failed: {e}")
-    return count
+    from psycopg2.extras import execute_values
+    tuples = []
+    for row in rows:
+        ent = str(row.get("ent_num", "")).strip()
+        if not ent:
+            continue
+        is_new = str(row.get("new_since_last_run", "False")).strip().lower() in ("true", "1", "yes")
+        tuples.append((
+            ent,
+            str(row.get("sdn_name", "")),
+            str(row.get("sdn_type", "")),
+            str(row.get("program", "")),
+            str(row.get("title", "")),
+            str(row.get("call_sign", "")),
+            str(row.get("vess_type", "")),
+            str(row.get("tonnage", "")),
+            str(row.get("grt", "")),
+            str(row.get("vess_flag", "")),
+            str(row.get("vess_owner", "")),
+            str(row.get("remarks", "")),
+            is_new,
+        ))
+
+    if not tuples:
+        return 0
+
+    query = """
+        INSERT INTO sanctions (
+            ent_num, sdn_name, sdn_type, program, title,
+            call_sign, vess_type, tonnage, grt, vess_flag,
+            vess_owner, remarks, new_since_last_run
+        ) VALUES %s
+        ON CONFLICT (ent_num) DO UPDATE SET
+            new_since_last_run = EXCLUDED.new_since_last_run,
+            fetched_at = NOW()
+    """
+    chunk_size = 1000
+    total = 0
+    try:
+        with conn.cursor() as cur:
+            for i in range(0, len(tuples), chunk_size):
+                chunk = tuples[i:i + chunk_size]
+                execute_values(cur, query, chunk, page_size=chunk_size)
+                total += len(chunk)
+        return total
+    except Exception as e:
+        print(f"[DB] upsert_sanctions batch failed: {e}")
+        return 0
 
 
 def get_existing_sanction_ids(conn):
@@ -282,7 +298,29 @@ def get_existing_sanction_ids(conn):
         return set()
 
 
+def _migrate_alerts_columns(conn):
+    """One-time migration: add new sub-step latency and coverage_note columns if missing."""
+    new_cols = {
+        "signal_to_scenario_ms":      "INTEGER",
+        "scenario_to_procurement_ms": "INTEGER",
+        "procurement_to_llm_ms":      "INTEGER",
+        "coverage_note":              "TEXT",
+    }
+    try:
+        with conn.cursor() as cur:
+            for col, col_type in new_cols.items():
+                cur.execute("""
+                    DO $$ BEGIN
+                        ALTER TABLE alerts ADD COLUMN IF NOT EXISTS {col} {col_type};
+                    EXCEPTION WHEN others THEN NULL;
+                    END $$;
+                """.replace("{col}", col).replace("{col_type}", col_type))
+    except Exception as e:
+        print(f"[DB] migrate_alerts_columns: {e}")
+
+
 def append_alert(conn, row):
+    _migrate_alerts_columns(conn)
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -291,9 +329,10 @@ def append_alert(conn, row):
                     score_prev, score_now, threshold,
                     signal_detected_at, scenario_computed_at,
                     recommendation_generated_at, latency_ms,
-                    supply_gap_pct, coverage_days, buffer_status,
+                    signal_to_scenario_ms, scenario_to_procurement_ms, procurement_to_llm_ms,
+                    supply_gap_pct, coverage_days, coverage_note, buffer_status,
                     top_recommendation, top_score, all_affected_suppliers
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """, (
                 str(row.get("cycle_id", "")),
                 row.get("triggered_at"),
@@ -305,8 +344,12 @@ def append_alert(conn, row):
                 row.get("scenario_computed_at"),
                 row.get("recommendation_generated_at"),
                 _safe_int(row.get("latency_ms")),
+                _safe_int(row.get("signal_to_scenario_ms")),
+                _safe_int(row.get("scenario_to_procurement_ms")),
+                _safe_int(row.get("procurement_to_llm_ms")),
                 _safe_float(row.get("supply_gap_pct")),
                 _safe_float(row.get("coverage_days")),
+                str(row.get("coverage_note") or ""),
                 str(row.get("buffer_status", "")),
                 str(row.get("top_recommendation", "")),
                 _safe_float(row.get("top_score")),

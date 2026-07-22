@@ -70,14 +70,42 @@ function ScoreBar({ prev, now, threshold }) {
 
 // ── Single alert card
 function AlertCard({ alert, idx }) {
+  const [expanded, setExpanded] = useState(false);
+  const [evidence, setEvidence] = useState([]);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+
   const corridorLabel = CORRIDOR_LABELS[alert.corridor] || alert.corridor;
   const latencyMs     = alert.latency_ms;
+  const sigScenMs     = alert.signal_to_scenario_ms;
+  const scenProcMs    = alert.scenario_to_procurement_ms;
+  const procLlmMs     = alert.procurement_to_llm_ms;
+
   const topRec        = alert.top_recommendation;
   const topScore      = parseFloat(alert.top_score)   || null;
   const covDays       = parseFloat(alert.coverage_days) || null;
+  const covNote       = alert.coverage_note || (covDays == null ? 'No import share mapped for this corridor' : null);
   const suppliers     = alert.all_affected_suppliers
     ? alert.all_affected_suppliers.split('|').filter(Boolean)
     : [];
+
+  const isDomestic = alert.corridor === 'india_domestic';
+
+  // Lazy fetch supporting evidence (top news articles driving the score)
+  const toggleEvidence = async () => {
+    if (!expanded && evidence.length === 0) {
+      setEvidenceLoading(true);
+      try {
+        const res = await fetch(`${ENDPOINTS.newsFeed}?corridor=${alert.corridor}&limit=3`);
+        const json = await res.json();
+        setEvidence(json.items || []);
+      } catch (err) {
+        setEvidence([]);
+      } finally {
+        setEvidenceLoading(false);
+      }
+    }
+    setExpanded(!expanded);
+  };
 
   return (
     <div style={{
@@ -86,20 +114,25 @@ function AlertCard({ alert, idx }) {
       borderLeft: '3px solid #ef4444',
       borderRadius: 8,
       padding: '12px 14px',
-      marginBottom: 8,
+      marginBottom: 10,
       position: 'relative',
     }}>
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{
             background: '#ef4444', color: '#fff',
             fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
             padding: '2px 6px', borderRadius: 3,
           }}>🔴 ALERT</span>
-          <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>
+          <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
             {corridorLabel}
           </span>
+          {isDomestic && (
+            <span style={{ fontSize: 10, color: '#f59e0b', background: 'rgba(245,158,11,0.12)', padding: '1px 6px', borderRadius: 4, border: '1px solid rgba(245,158,11,0.2)' }}>
+              Domestic Refined Product Risk
+            </span>
+          )}
         </div>
         <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
           {relTime(alert.triggered_at)}
@@ -114,20 +147,25 @@ function AlertCard({ alert, idx }) {
 
       {/* Key metrics grid */}
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+        display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr',
         gap: 8, marginBottom: 8,
       }}>
-        {/* Latency — the headline metric for judges */}
+        {/* Sub-step Latency Breakdown */}
         <div style={{
           background: 'rgba(59,130,246,0.1)',
           border: '1px solid rgba(59,130,246,0.2)',
-          borderRadius: 6, padding: '6px 10px', textAlign: 'center',
+          borderRadius: 6, padding: '6px 10px',
         }}>
           <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
-            Signal → Recommendation
+            Signal → Rec Latency
           </div>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#3b82f6' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#3b82f6' }}>
             {latencyMs != null ? `${latencyMs} ms` : '—'}
+          </div>
+          <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.3 }}>
+            {sigScenMs != null ? `Signal→Scen: ${sigScenMs}ms` : 'Perceive & Calc'}
+            {scenProcMs != null && ` · Rec: ${scenProcMs}ms`}
+            {procLlmMs > 0 && ` · LLM: ${procLlmMs}ms`}
           </div>
         </div>
 
@@ -148,7 +186,7 @@ function AlertCard({ alert, idx }) {
           )}
         </div>
 
-        {/* Buffer coverage */}
+        {/* Buffer coverage with explicit fallback note */}
         <div style={{
           background: 'rgba(251,191,36,0.08)',
           border: '1px solid rgba(251,191,36,0.2)',
@@ -157,18 +195,64 @@ function AlertCard({ alert, idx }) {
           <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 2 }}>
             Buffer Coverage
           </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>
-            {covDays != null ? `${covDays.toFixed(1)} days` : '—'}
-          </div>
+          {covDays != null ? (
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>
+              {covDays.toFixed(1)} days
+            </div>
+          ) : (
+            <div style={{ fontSize: 9, color: '#f59e0b', fontWeight: 600, lineHeight: 1.3 }}>
+              {covNote}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Affected suppliers */}
+      {/* Affected suppliers line */}
       {suppliers.length > 0 && (
-        <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 6 }}>
           Affected suppliers: {suppliers.join(', ')}
         </div>
       )}
+
+      {/* Item 3: Supporting Evidence Expandable Trail */}
+      <div style={{ marginTop: 8, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 6 }}>
+        <button
+          onClick={toggleEvidence}
+          style={{
+            background: 'transparent', border: 'none', color: '#3b82f6',
+            fontSize: 11, fontWeight: 600, cursor: 'pointer', padding: 0,
+            display: 'flex', alignItems: 'center', gap: 4,
+          }}
+        >
+          <span>{expanded ? '▼' : '▶'}</span>
+          <span>Why was this triggered? (Supporting News Trail)</span>
+        </button>
+
+        {expanded && (
+          <div style={{ marginTop: 8, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, padding: 10 }}>
+            {evidenceLoading && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>Loading contributing news articles…</div>
+            )}
+            {!evidenceLoading && evidence.length === 0 && (
+              <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>No specific headline citations logged for this cycle.</div>
+            )}
+            {!evidenceLoading && evidence.map((art, i) => (
+              <div key={i} style={{ borderLeft: '2px solid #ef4444', paddingLeft: 8, marginBottom: 6, fontSize: 11 }}>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {art.link ? (
+                    <a href={art.link} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-primary)', textDecoration: 'none' }}>
+                      [{i + 1}] {art.title}
+                    </a>
+                  ) : `[${i + 1}] ${art.title}`}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {art.source} · {art.date ? new Date(art.date).toLocaleDateString() : ''} · Severity: {art.severity}/5
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

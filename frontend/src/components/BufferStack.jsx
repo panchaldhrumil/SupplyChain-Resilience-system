@@ -203,10 +203,141 @@ export default function BufferStack({ data, loading }) {
         </div>
       )}
 
+      {/* ── Item 3 & 5: Detailed Breakdown Tables (Refineries & SPR) ── */}
+      {(data.refinery_breakdown || data.spr_breakdown) && (
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setActiveLayer(activeLayer === 'refinery_detail' ? null : 'refinery_detail')}
+              style={{
+                flex: '1 1 140px', padding: '6px 8px', fontSize: 10, fontWeight: 700,
+                borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)',
+                background: activeLayer === 'refinery_detail' ? 'rgba(20,184,166,0.15)' : 'var(--bg-card)',
+                color: activeLayer === 'refinery_detail' ? '#5eead4' : 'var(--text-primary)',
+                textAlign: 'center', whiteSpace: 'nowrap',
+              }}
+            >
+              🏭 Refinery Stock Breakdown ({data.refinery_breakdown?.refineries?.length || 0})
+            </button>
+            <button
+              onClick={() => setActiveLayer(activeLayer === 'spr_detail' ? null : 'spr_detail')}
+              style={{
+                flex: '1 1 140px', padding: '6px 8px', fontSize: 10, fontWeight: 700,
+                borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)',
+                background: activeLayer === 'spr_detail' ? 'rgba(139,92,246,0.15)' : 'var(--bg-card)',
+                color: activeLayer === 'spr_detail' ? '#c4b5fd' : 'var(--text-primary)',
+                textAlign: 'center', whiteSpace: 'nowrap',
+              }}
+            >
+              🛢️ SPR Site Breakdown (3)
+            </button>
+          </div>
+
+          {/* Refinery Breakdown Table */}
+          {activeLayer === 'refinery_detail' && data.refinery_breakdown && (
+            <div style={{
+              background: 'var(--bg-card)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: 12, fontSize: 11,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'baseline' }}>
+                <span style={{ fontWeight: 700, color: '#14b8a6' }}>
+                  Refinery Product Stock Allocation ({data.refinery_breakdown.aggregate_stock_days} Days Total Aggregate)
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                  {data.refinery_breakdown.coverage_pct}% Capacity Mapped
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
+                {data.refinery_breakdown.methodology_note}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: 10 }}>
+                      <th style={{ padding: '4px 6px' }}>REFINERY</th>
+                      <th style={{ padding: '4px 6px' }}>OPERATOR</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>CAPACITY</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>SHARE</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>EST. STOCK</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.refinery_breakdown.refineries.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '5px 6px', fontWeight: r.name.startsWith('Others') ? 400 : 600 }}>{r.name}</td>
+                        <td style={{ padding: '5px 6px', color: 'var(--text-muted)', fontSize: 10 }}>{r.operator}</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.capacity_mmtpa} MMTPA</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{r.share_pct}%</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: '#5eead4', fontVariantNumeric: 'tabular-nums' }}>
+                          {r.stock_days_est}d
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--text-footer)', marginTop: 8 }}>
+                Source: {data.refinery_breakdown.source} · Aggregate: {data.refinery_breakdown.aggregate_source}
+              </div>
+            </div>
+          )}
+
+          {/* SPR Site Breakdown Table */}
+          {activeLayer === 'spr_detail' && data.spr_breakdown && (
+            <div style={{
+              background: 'var(--bg-card)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: 12, fontSize: 11,
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, alignItems: 'baseline' }}>
+                <span style={{ fontWeight: 700, color: '#8b5cf6' }}>
+                  Strategic Petroleum Reserve (SPR) Site Fill
+                </span>
+                <span style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                  {data.spr_breakdown.national_fill_pct}% National Fill Rate
+                </span>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 10, lineHeight: 1.4 }}>
+                {data.spr_breakdown.methodology_note}
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontSize: 10 }}>
+                      <th style={{ padding: '4px 6px' }}>ISPRL LOCATION</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>CAPACITY</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>FILL RATE</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>EST. CRUDE HELD</th>
+                      <th style={{ padding: '4px 6px', textAlign: 'right' }}>EST. DAYS</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.spr_breakdown.sites.map((s, i) => (
+                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '5px 6px', fontWeight: 600 }}>{s.site}</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.capacity_mmt} MMT</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', color: '#c4b5fd', fontVariantNumeric: 'tabular-nums' }}>{s.fill_pct_national}%</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{s.est_fill_mmt} MMT</td>
+                        <td style={{ padding: '5px 6px', textAlign: 'right', fontWeight: 700, color: '#c4b5fd', fontVariantNumeric: 'tabular-nums' }}>
+                          {s.est_days_cover}d
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 9, color: 'var(--text-footer)', marginTop: 8 }}>
+                Source: {data.spr_breakdown.source} · Verified: {data.spr_breakdown.last_verified}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ fontSize: 10, color: 'var(--text-footer)', marginTop: 2 }}>
         Click a layer to see source citation · {data.note}
       </div>
     </div>
   );
 }
+
 

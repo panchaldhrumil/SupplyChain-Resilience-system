@@ -235,3 +235,37 @@ a:hover {
 }
 
 
+/* ─────────────────────────────────────────────────────────────
+   Leaflet tooltip z-index override
+   Forces the tooltip pane above ALL overlay panels (vessels,
+   toggle buttons, legend — all at z-index ≤ 1000).
+   ───────────────────────────────────────────────────────────── */
+.leaflet-tooltip-pane {
+  z-index: 9999 !important;
+}
+
+/* Tooltip content itself: dark-glass look, high-contrast text */
+.leaflet-tooltip {
+  background: rgba(10, 14, 26, 0.95) !important;
+  border: 1px solid #334155 !important;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.7), 0 0 0 1px rgba(251,191,36,0.15) !important;
+  padding: 6px 10px !important;
+  color: #f1f5f9 !important;
+  font-family: 'Inter', 'Roboto', sans-serif !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  pointer-events: none !important;
+  backdrop-filter: blur(6px);
+}
+
+/* Tooltip arrow (triangle) — inherit border color */
+.leaflet-tooltip::before {
+  border-top-color: #334155 !important;
+}
+.leaflet-tooltip-top::before {
+  border-top-color: rgba(10, 14, 26, 0.95) !important;
+}
+.leaflet-tooltip-bottom::before {
+  border-bottom-color: rgba(10, 14, 26, 0.95) !important;
+}

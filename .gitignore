@@ -27,6 +27,7 @@ ENV/
 
 # ── Environment / secrets (NEVER commit real keys) ──────────────────
 backend/.env
+backend/.env.example
 .env
 .env.local
 .env.*.local
