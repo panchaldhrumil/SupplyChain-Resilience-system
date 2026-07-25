@@ -22,6 +22,10 @@ GEMINI_API_KEY                   = os.environ.get("GEMINI_API_KEY", "")
 MAX_LLM_CLASSIFICATIONS_PER_RUN  = 40
 
 DATABASE_URL                     = os.environ.get("DATABASE_URL", "")
+# Neon unpooled (direct) connection — uses less data-transfer quota.
+# Set this in .env to the "Direct connection" URL from your Neon dashboard.
+# Falls back to DATABASE_URL if not set.
+DATABASE_URL_UNPOOLED            = os.environ.get("DATABASE_URL_UNPOOLED", "") or os.environ.get("DATABASE_URL", "")
 QDRANT_URL                       = os.environ.get("QDRANT_URL", "")
 QDRANT_API_KEY                   = os.environ.get("QDRANT_API_KEY", "")
 QDRANT_COLLECTION                = os.environ.get("QDRANT_COLLECTION", "macro_events")

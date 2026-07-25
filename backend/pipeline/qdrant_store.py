@@ -19,6 +19,21 @@ def get_client():
         return None
 
 
+def clear_qdrant_collection():
+    """Wipes and recreates Qdrant collection during 4-hour cleanup runs."""
+    client = get_client()
+    if not client:
+        return
+    try:
+        names = [c.name for c in client.get_collections().collections]
+        if QDRANT_COLLECTION in names:
+            client.delete_collection(collection_name=QDRANT_COLLECTION)
+            print(f"[Qdrant Cleanup] Deleted collection: {QDRANT_COLLECTION}")
+        ensure_collection(client)
+    except Exception as e:
+        print(f"[Qdrant Cleanup] Failed: {e}")
+
+
 def ensure_collection(client, vector_size=VECTOR_SIZE):
     try:
         from qdrant_client.models import Distance, VectorParams, PayloadSchemaType
@@ -51,6 +66,7 @@ def ensure_collection(client, vector_size=VECTOR_SIZE):
 
     except Exception as e:
         print(f"[Qdrant] ensure_collection: {e}")
+
 
 
 def embed_text(text, api_key=None):

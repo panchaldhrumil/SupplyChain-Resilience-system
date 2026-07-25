@@ -81,3 +81,9 @@ htmlcov/
 # ── mypy ─────────────────────────────────────────────────────────────
 .mypy_cache/
 .dmypy.json
+
+
+
+# ignored by dhrumil
+.env
+.env.*

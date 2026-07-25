@@ -123,16 +123,29 @@ def _run_pipeline():
     log.info("Next runs scheduled at: 00:00, 06:00, 12:00, 18:00 UTC")
 
 
-SCHEDULE_TIMES_UTC = ["00:00", "06:00", "12:00", "18:00"]
+def _run_cleanup():
+    """Automated 4-hour cleanup: purges old DB logs and resets Qdrant vectors."""
+    log.info("Starting automated 4-hour cleanup of old Neon DB logs and Qdrant vectors...")
+    try:
+        from pipeline.db import get_connection, cleanup_db_logs
+        from pipeline.qdrant_store import clear_qdrant_collection
+        conn = get_connection()
+        if conn:
+            cleanup_db_logs(conn, keep_days=3)
+            conn.close()
+        clear_qdrant_collection()
+        log.info("4-hour DB & Qdrant cleanup completed successfully.")
+    except Exception as exc:
+        log.exception("4-hour cleanup failed: %s", exc)
 
 
 def _register_schedule():
-    for t in SCHEDULE_TIMES_UTC:
-        schedule.every().day.at(t).do(_run_pipeline)
-    log.info(
-        "Registered fixed 6-hour schedule (UTC): %s",
-        "  ".join(SCHEDULE_TIMES_UTC),
-    )
+    # Populate Neon DB & Qdrant every 1 hour
+    schedule.every(1).hours.do(_run_pipeline)
+    # Cleanup old logs & Qdrant vectors every 4 hours
+    schedule.every(4).hours.do(_run_cleanup)
+    log.info("Registered 1-hour population schedule & 4-hour DB/Qdrant cleanup schedule.")
+
 
 
 def main():

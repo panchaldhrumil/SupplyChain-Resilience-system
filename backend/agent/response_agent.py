@@ -92,7 +92,8 @@ def load_state() -> dict:
         conn = get_connection()
         state = load_agent_state(conn)
         conn.close()
-        return state
+        if state and isinstance(state, dict):
+            return state
     except Exception:
         pass
 
@@ -100,10 +101,13 @@ def load_state() -> dict:
     if state_file.exists():
         try:
             with open(state_file, encoding="utf-8") as f:
-                return json.load(f)
+                res = json.load(f)
+                if isinstance(res, dict):
+                    return res
         except Exception:
             pass
     return {}
+
 
 
 def save_state(scores: dict) -> None:

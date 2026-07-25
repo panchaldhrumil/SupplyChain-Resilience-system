@@ -4,13 +4,15 @@ from datetime import datetime, timezone
 
 import psycopg2
 
-from pipeline.settings import DATABASE_URL
+from pipeline.settings import DATABASE_URL, DATABASE_URL_UNPOOLED
 
 
 def get_connection():
-    if not DATABASE_URL:
+    # Prefer unpooled direct connection (avoids Neon pooler data-transfer quota)
+    url = DATABASE_URL_UNPOOLED or DATABASE_URL
+    if not url:
         raise RuntimeError("DATABASE_URL is not set")
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(url)
     conn.autocommit = True
     return conn
 
@@ -398,4 +400,28 @@ def load_agent_state(conn):
                 return {"scores": row[0]}
     except Exception:
         pass
+    return None
+
+
+def cleanup_db_logs(conn, keep_days=3):
+    """
+    Automated 4-hour cleanup job:
+    Deletes macro_events older than keep_days (default 3 days) to keep
+    Neon DB size minimal and stay well within free tier limits.
+    """
+    if conn is None:
+        return 0
+    try:
+        with conn.cursor() as cur:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+            cur.execute("DELETE FROM macro_events WHERE date < %s", (cutoff.date(),))
+            deleted_events = cur.rowcount
+            cur.execute("DELETE FROM corridor_score_history WHERE ts < %s", (cutoff,))
+            deleted_history = cur.rowcount
+            print(f"[DB Cleanup] Deleted {deleted_events} old news items and {deleted_history} old score history records (older than {keep_days} days).")
+            return deleted_events
+    except Exception as e:
+        print(f"[DB Cleanup] Failed: {e}")
+        return 0
+
     return {}

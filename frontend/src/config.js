@@ -16,5 +16,6 @@ export const ENDPOINTS = {
   base:             API_BASE,
 };
 
-// Poll interval: 60 seconds
-export const POLL_INTERVAL_MS = 60_000;
+// Poll interval: 1 hour (3,600,000 ms) — reduces DB traffic & stays within Neon free limits
+export const POLL_INTERVAL_MS = 3_600_000;
+
