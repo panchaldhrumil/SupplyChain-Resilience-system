@@ -87,7 +87,7 @@ def _run_pipeline():
 
     try:
         import copy
-        args = copy.copy(_pipeline_args)
+        args = copy.copy(_pipeline_args) if _pipeline_args is not None else build_arg_parser().parse_args([])
         args.from_date = week_ago_str
         args.to_date   = today_str
         run(args)
@@ -146,6 +146,37 @@ def _register_schedule():
     schedule.every(4).hours.do(_run_cleanup)
     log.info("Registered 1-hour population schedule & 4-hour DB/Qdrant cleanup schedule.")
 
+
+def is_pipeline_running() -> bool:
+    return _is_running
+
+
+def trigger_manual_run():
+    t = threading.Thread(target=_run_pipeline, daemon=True, name="manual-pipeline-run")
+    t.start()
+    return t
+
+
+def start_scheduler_thread(interval_hours: int = 1, run_now: bool = True):
+    def _loop():
+        if run_now:
+            log.info("Background pipeline scheduler: triggering initial run...")
+            _run_pipeline()
+
+        schedule.every(interval_hours).hours.do(_run_pipeline)
+        schedule.every(4).hours.do(_run_cleanup)
+        log.info("Background pipeline scheduler loop active (interval: %d hour(s)).", interval_hours)
+
+        while True:
+            try:
+                schedule.run_pending()
+            except Exception as exc:
+                log.exception("Error in schedule execution: %s", exc)
+            time.sleep(30)
+
+    t = threading.Thread(target=_loop, daemon=True, name="pipeline-scheduler")
+    t.start()
+    return t
 
 
 def main():
