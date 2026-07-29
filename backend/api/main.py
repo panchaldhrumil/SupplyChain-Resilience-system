@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers import (
@@ -80,8 +80,7 @@ def _start_pipeline_scheduler():
 async def lifespan(app: FastAPI):
     _init_db()
     _init_qdrant()
-    _start_agent_loop()
-    _start_pipeline_scheduler()
+    # Daemon threads removed — agent loop and scheduler do not work on Vercel Serverless
     yield
 
 
