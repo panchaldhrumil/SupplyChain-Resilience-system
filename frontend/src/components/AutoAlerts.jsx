@@ -257,32 +257,12 @@ function AlertCard({ alert, idx }) {
   );
 }
 
+import { usePolling } from '../hooks/usePolling';
+
 // ── Main component
 export default function AutoAlerts() {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [lastTs,  setLastTs]  = useState(null);
-
-  const fetchAlerts = useCallback(async () => {
-    try {
-      const res  = await fetch(`${ENDPOINTS.autoAlerts}?limit=10`);
-      const json = await res.json();
-      setData(json);
-      setLastTs(new Date());
-      setError(null);
-    } catch (e) {
-      setError('Cannot reach /api/auto-alerts');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchAlerts();
-    const timer = setInterval(fetchAlerts, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [fetchAlerts]);
+  const fetchFn = useCallback(() => fetch(`${ENDPOINTS.autoAlerts}?limit=10`).then(r => r.json()), []);
+  const { data, loading, error, lastUpdated: lastTs } = usePolling(fetchFn, POLL_INTERVAL_MS);
 
   const alerts    = data?.alerts    || [];
   const threshold = data?.threshold || 66;

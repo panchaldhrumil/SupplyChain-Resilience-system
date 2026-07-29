@@ -24,7 +24,23 @@ export function usePolling(fetchFn, interval = 60_000, deps = []) {
   useEffect(() => {
     run();
     const id = setInterval(run, interval);
-    return () => clearInterval(id);
+
+    // Automatically refetch when the user returns to the tab
+    // This allows picking up newly generated data from the background GitHub Actions pipeline
+    const handleFocus = () => {
+      if (document.visibilityState === 'visible') {
+        run();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [run, interval]);
 
   return { data, loading, error, lastUpdated, refresh: run };

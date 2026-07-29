@@ -1,0 +1,90 @@
+name: Pipeline Cron — India Energy Resilience
+
+on:
+  schedule:
+    # Runs every 6 hours (00:00, 06:00, 12:00, 18:00 UTC).
+    # This completely replaces the incompatible daemon-thread scheduler in the Vercel backend.
+    - cron: '0 0,6,12,18 * * *'
+
+  # Supports manual execution from the GitHub Actions UI.
+  workflow_dispatch:
+    inputs:
+      no_enrich:
+        description: 'Skip article enrichment (fast mode)'
+        required: false
+        default: 'false'
+        type: string
+      llm_classify:
+        description: 'Enable Gemini LLM classification'
+        required: false
+        default: 'false'
+        type: string
+
+concurrency:
+  group: pipeline-cron
+  cancel-in-progress: false
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # Step 1: Check out the repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Python 3.12 environment
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          # Cache against the root requirements.txt which has all pipeline deps
+          cache-dependency-path: requirements.txt
+
+      # Step 3: Install all pipeline dependencies
+      # We intentionally use the root requirements.txt here. The backend/requirements.txt
+      # was stripped of pipeline-only dependencies (like feedparser) to keep the Vercel
+      # API cold starts fast. The root file contains everything needed for the pipeline.
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Step 4: Execute the pipeline exactly once
+      # We run `run_pipeline_once.py` instead of `scheduler.py --run-now` because 
+      # the latter enters a `while True` loop after running, causing GitHub Actions to hang.
+      - name: Run pipeline
+        working-directory: backend
+        env:
+          # Inject required secrets as environment variables
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          QDRANT_COLLECTION: ${{ secrets.QDRANT_COLLECTION }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          
+          # We write temporary CSV outputs to /tmp. GitHub Actions runner filesystems are
+          # ephemeral and destroyed after the run. The real data is pushed directly to DB/Qdrant.
+          CSV_OUTPUT_DIR: /tmp/macro_events
+        run: |
+          FLAGS=""
+          # Check manual trigger flags
+          if [ "${{ inputs.no_enrich }}" = "true" ]; then FLAGS="$FLAGS --no-enrich"; fi
+          if [ "${{ inputs.llm_classify }}" = "true" ]; then FLAGS="$FLAGS --llm-classify"; fi
+          
+          echo "Running pipeline with flags: $FLAGS"
+          # Exit immediately with a non-zero code if this script fails
+          set -e
+          python run_pipeline_once.py $FLAGS
+
+      # Step 5: Report completion
+      - name: Report result
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "Pipeline completed successfully."
+          else
+            echo "Pipeline failed — check the logs above."
+            exit 1
+          fi
