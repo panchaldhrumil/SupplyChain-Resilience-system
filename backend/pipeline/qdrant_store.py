@@ -32,6 +32,8 @@ def clear_qdrant_collection():
         ensure_collection(client)
     except Exception as e:
         print(f"[Qdrant Cleanup] Failed: {e}")
+    finally:
+        client.close()
 
 
 def ensure_collection(client, vector_size=VECTOR_SIZE):
@@ -143,6 +145,8 @@ def upsert_articles(articles, api_key=None):
             print(f"[Qdrant] Upserted {len(points)} articles to Qdrant Cloud!")
     except Exception as e:
         print(f"[Qdrant] upsert_articles: {e}")
+    finally:
+        client.close()
 
 
 def search_by_corridor(corridor, query_text, limit=5, api_key=None):
@@ -180,3 +184,5 @@ def search_by_corridor(corridor, query_text, limit=5, api_key=None):
     except Exception as e:
         print(f"[Qdrant] search_by_corridor: {e}")
         return []
+    finally:
+        client.close()

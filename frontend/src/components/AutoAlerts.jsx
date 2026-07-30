@@ -1,33 +1,17 @@
-/**
- * AutoAlerts.jsx — Live Disruption Response Alerts Panel
- *
- * Displays auto-triggered alerts from the Disruption Response Agent
- * (backend/agent/response_agent.py) via GET /api/auto-alerts.
- *
- * Each alert shows:
- *   • Corridor name + RED badge
- *   • Score crossing: prev → now vs threshold
- *   • Top procurement recommendation + score
- *   • Buffer coverage days
- *   • "Signal to recommendation: X ms" — the key latency metric for judges
- *   • Timestamp of when the alert fired
- *
- * Shows a clear "pending" state before any alerts have been triggered.
- * No fabricated numbers — all values come from real agent runs.
- */
+
 
 import { useState, useEffect, useCallback } from 'react';
 import { ENDPOINTS, POLL_INTERVAL_MS } from '../config';
 
 // ── Corridor display names
 const CORRIDOR_LABELS = {
-  hormuz:            'Strait of Hormuz',
-  red_sea:           'Red Sea / Bab-el-Mandeb',
-  suez:              'Suez Canal',
+  hormuz: 'Strait of Hormuz',
+  red_sea: 'Red Sea / Bab-el-Mandeb',
+  suez: 'Suez Canal',
   cape_of_good_hope: 'Cape of Good Hope',
-  russia_route:      'Russia / Black Sea',
-  malacca:           'Strait of Malacca',
-  india_domestic:    'India Domestic',
+  russia_route: 'Russia / Black Sea',
+  malacca: 'Strait of Malacca',
+  india_domestic: 'India Domestic',
 };
 
 // ── Format relative timestamp
@@ -36,7 +20,7 @@ function relTime(isoStr) {
   try {
     const diff = Date.now() - new Date(isoStr).getTime();
     const m = Math.floor(diff / 60000);
-    if (m < 1)  return 'just now';
+    if (m < 1) return 'just now';
     if (m < 60) return `${m}m ago`;
     const h = Math.floor(m / 60);
     if (h < 24) return `${h}h ago`;
@@ -49,7 +33,7 @@ function relTime(isoStr) {
 // ── Score badge
 function ScoreBar({ prev, now, threshold }) {
   const p = parseFloat(prev) || 0;
-  const n = parseFloat(now)  || 0;
+  const n = parseFloat(now) || 0;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
       <span style={{ color: 'var(--text-muted)' }}>{p.toFixed(1)}</span>
@@ -75,16 +59,16 @@ function AlertCard({ alert, idx }) {
   const [evidenceLoading, setEvidenceLoading] = useState(false);
 
   const corridorLabel = CORRIDOR_LABELS[alert.corridor] || alert.corridor;
-  const latencyMs     = alert.latency_ms;
-  const sigScenMs     = alert.signal_to_scenario_ms;
-  const scenProcMs    = alert.scenario_to_procurement_ms;
-  const procLlmMs     = alert.procurement_to_llm_ms;
+  const latencyMs = alert.latency_ms;
+  const sigScenMs = alert.signal_to_scenario_ms;
+  const scenProcMs = alert.scenario_to_procurement_ms;
+  const procLlmMs = alert.procurement_to_llm_ms;
 
-  const topRec        = alert.top_recommendation;
-  const topScore      = parseFloat(alert.top_score)   || null;
-  const covDays       = parseFloat(alert.coverage_days) || null;
-  const covNote       = alert.coverage_note || (covDays == null ? 'No import share mapped for this corridor' : null);
-  const suppliers     = alert.all_affected_suppliers
+  const topRec = alert.top_recommendation;
+  const topScore = parseFloat(alert.top_score) || null;
+  const covDays = parseFloat(alert.coverage_days) || null;
+  const covNote = alert.coverage_note || (covDays == null ? 'No import share mapped for this corridor' : null);
+  const suppliers = alert.all_affected_suppliers
     ? alert.all_affected_suppliers.split('|').filter(Boolean)
     : [];
 
@@ -264,7 +248,7 @@ export default function AutoAlerts() {
   const fetchFn = useCallback(() => fetch(`${ENDPOINTS.autoAlerts}?limit=10`).then(r => r.json()), []);
   const { data, loading, error, lastUpdated: lastTs } = usePolling(fetchFn, POLL_INTERVAL_MS);
 
-  const alerts    = data?.alerts    || [];
+  const alerts = data?.alerts || [];
   const threshold = data?.threshold || 66;
 
   const headerRight = (
